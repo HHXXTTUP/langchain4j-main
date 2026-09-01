@@ -1,0 +1,45 @@
+{
+  "name": "kids-growth-miniapp",
+  "version": "2.0.0",
+  "private": true,
+  "description": "语芽儿童英语、古诗词与亲子互动小程序",
+  "scripts": {
+    "dev:weapp": "taro build --type weapp --watch",
+    "clean:weapp": "node tools/clean-weapp-output.cjs",
+    "build:weapp": "npm run clean:weapp && taro build --type weapp",
+    "typecheck": "tsc --noEmit"
+  },
+  "browserslist": [
+    "last 3 versions",
+    "Android >= 5",
+    "iOS >= 9"
+  ],
+  "dependencies": {
+    "@babel/runtime": "^7.28.4",
+    "@tarojs/components": "4.2.1",
+    "@tarojs/helper": "4.2.1",
+    "@tarojs/plugin-framework-react": "4.2.1",
+    "@tarojs/plugin-platform-weapp": "4.2.1",
+    "@tarojs/react": "4.2.1",
+    "@tarojs/runtime": "4.2.1",
+    "@tarojs/shared": "4.2.1",
+    "@tarojs/taro": "4.2.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.28.4",
+    "@babel/preset-react": "^7.27.1",
+    "@prefresh/babel-plugin": "^0.5.1",
+    "@tarojs/cli": "4.2.1",
+    "@tarojs/webpack5-runner": "4.2.1",
+    "@types/react": "18.3.24",
+    "@types/webpack-env": "^1.18.8",
+    "babel-preset-taro": "4.2.1",
+    "react-refresh": "^0.14.2",
+    "sass": "^1.92.0",
+    "style-loader": "^4.0.0",
+    "typescript": "^5.9.2",
+    "webpack": "5.91.0"
+  }
+}

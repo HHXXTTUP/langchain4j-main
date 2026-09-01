@@ -1,0 +1,67 @@
+<view class="page-shell animation-page">
+  <view class="page-intro">
+    <text class="eyebrow">A LITTLE STORY STUDIO</text>
+    <view class="intro-row">
+      <view class="intro-copy">
+        <text class="page-title">把想象放进动画屋</text>
+        <text class="page-subtitle">未来可以把一句话，变成会动的小故事。</text>
+      </view>
+      <image class="intro-image" src="/assets/animation-dream.png" mode="aspectFill" />
+    </view>
+  </view>
+
+  <view class="coming-banner">
+    <view class="coming-mark">✦</view>
+    <view class="coming-copy">
+      <text class="coming-title">动画工坊正在搭建</text>
+      <text class="coming-note">先把灵感写下来，生成能力开放后就能开始创作啦。</text>
+    </view>
+  </view>
+
+  <view class="panel prompt-panel">
+    <view class="field-heading">
+      <text class="section-title">故事灵感</text>
+      <text class="character-count">{{prompt.length}} / 200</text>
+    </view>
+    <textarea
+      class="prompt-input"
+      maxlength="200"
+      value="{{prompt}}"
+      placeholder="例如：一只小兔子在月光下寻找会唱歌的花"
+      placeholder-class="input-placeholder"
+      bindinput="handlePromptInput"
+    />
+  </view>
+
+  <view class="panel option-panel">
+    <view class="option-row">
+      <view>
+        <text class="option-label">选择视频模型</text>
+        <text class="option-note">生成能力开放后可切换</text>
+      </view>
+      <picker mode="selector" range="{{models}}" value="{{modelIndex}}" bindchange="chooseModel">
+        <view class="picker-value">{{models[modelIndex]}} <text class="chevron">⌄</text></view>
+      </picker>
+    </view>
+    <view class="style-block">
+      <text class="option-label">画面感觉</text>
+      <view class="style-list">
+        <button
+          wx:for="{{styles}}"
+          wx:key="*this"
+          class="style-chip {{activeStyle === item ? 'active' : ''}}"
+          data-style="{{item}}"
+          bindtap="chooseStyle"
+        >{{item}}</button>
+      </view>
+    </view>
+    <button class="primary-button reserve-button" disabled="true"><text class="button-icon">✦</text>即将开放生成</button>
+  </view>
+
+  <view class="ideas-row">
+    <view class="idea-dot coral"></view>
+    <text>可以先记录角色、场景和想说的话</text>
+    <view class="idea-dot mint"></view>
+  </view>
+  <view class="safe-bottom"></view>
+</view>

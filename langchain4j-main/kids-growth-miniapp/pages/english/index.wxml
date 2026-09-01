@@ -1,0 +1,86 @@
+<view class="page-shell english-page">
+  <view class="page-intro">
+    <text class="eyebrow">HELLO, LITTLE STAR</text>
+    <view class="intro-row">
+      <view class="intro-copy">
+        <text class="page-title">把中文变成英文</text>
+        <text class="page-subtitle">写下想说的话，一起认识新的英文表达。</text>
+      </view>
+      <image class="intro-image" src="/assets/english-buddy.png" mode="aspectFill" />
+    </view>
+  </view>
+
+  <view class="panel translate-panel">
+    <view class="field-heading">
+      <text class="section-title">我想说</text>
+      <text class="character-count">{{sourceText.length}} / 120</text>
+    </view>
+    <textarea
+      class="source-input"
+      maxlength="120"
+      value="{{sourceText}}"
+      placeholder="例如：今天我学会了一个新单词"
+      placeholder-class="input-placeholder"
+      bindinput="handleInput"
+    />
+
+    <scroll-view class="quick-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+      <view class="quick-list">
+        <button
+          wx:for="{{quickPrompts}}"
+          wx:key="*this"
+          class="quick-chip"
+          data-text="{{item}}"
+          bindtap="useQuickPrompt"
+        >{{item}}</button>
+      </view>
+    </scroll-view>
+
+    <button class="primary-button translate-button" loading="{{translating}}" disabled="{{translating}}" bindtap="translate">
+      <text wx:if="{{!translating}}" class="button-icon">A</text>
+      {{translating ? '正在想一想…' : '翻译成英文'}}
+    </button>
+  </view>
+
+  <view wx:if="{{translatedText}}" class="result-card">
+    <view class="result-topline">
+      <text class="result-label">ENGLISH</text>
+      <button class="copy-button" bindtap="copyTranslation">复制</button>
+    </view>
+    <text class="result-text">{{translatedText}}</text>
+    <text class="result-source">{{sourceText}}</text>
+  </view>
+
+  <view class="history-section">
+    <view class="history-heading">
+      <view>
+        <text class="section-title">最近学过</text>
+        <text class="section-note">点一下，可以重新打开这句话</text>
+      </view>
+      <button wx:if="{{history.length}}" class="text-button" bindtap="clearHistory">清空</button>
+    </view>
+
+    <view wx:if="{{history.length}}" class="history-list">
+      <button
+        wx:for="{{history}}"
+        wx:key="id"
+        class="history-item"
+        data-id="{{item.id}}"
+        bindtap="reuseHistory"
+      >
+        <view class="history-copy">
+          <text class="history-translation">{{item.translation}}</text>
+          <text class="history-source">{{item.source}}</text>
+        </view>
+        <text class="history-time">{{item.createdAt}}</text>
+      </button>
+    </view>
+
+    <view wx:else class="panel empty-history">
+      <text class="empty-star">★</text>
+      <text class="empty-title">第一句话，等你来发现</text>
+      <text class="empty-copy">翻译过的内容会保存在这里。</text>
+    </view>
+  </view>
+  <view class="safe-bottom"></view>
+</view>

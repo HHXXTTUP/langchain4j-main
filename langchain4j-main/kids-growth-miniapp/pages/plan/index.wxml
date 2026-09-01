@@ -1,0 +1,136 @@
+<view class="page-shell plan-page">
+  <view class="page-intro">
+    <text class="eyebrow">GROW A LITTLE EVERY DAY</text>
+    <text class="page-title">我的计划</text>
+    <text class="page-subtitle">把每天的小目标，变成看得见的成长。</text>
+  </view>
+
+  <view class="view-switcher">
+    <button class="view-tab {{activeView === 'today' ? 'active' : ''}}" data-view="today" bindtap="switchView">今日计划</button>
+    <button class="view-tab {{activeView === 'courses' ? 'active' : ''}}" data-view="courses" bindtap="switchView">课程表</button>
+    <button class="view-tab {{activeView === 'records' ? 'active' : ''}}" data-view="records" bindtap="switchView">成长记录</button>
+  </view>
+
+  <view wx:if="{{activeView === 'today'}}" class="today-view">
+    <scroll-view class="date-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+      <view class="date-list">
+        <button
+          wx:for="{{weekDates}}"
+          wx:key="key"
+          class="date-item {{selectedDate === item.key ? 'active' : ''}} {{item.isToday ? 'today' : ''}}"
+          data-date="{{item.key}}"
+          bindtap="selectDate"
+        >
+          <text class="date-weekday">{{item.weekday}}</text>
+          <text class="date-number">{{item.day}}</text>
+          <view wx:if="{{item.isToday}}" class="today-dot"></view>
+        </button>
+      </view>
+    </scroll-view>
+
+    <view class="progress-panel">
+      <view class="progress-copy">
+        <text class="progress-date">{{selectedDateLabel}}的小步子</text>
+        <text class="progress-number">{{doneCount}} <text class="progress-total">/ {{tasks.length}} 完成</text></text>
+      </view>
+      <view class="progress-track"><view class="progress-fill" style="width: {{progressPercent}}%;"></view></view>
+      <text class="progress-message">{{progressPercent >= 100 ? '太棒啦，今天的星星都收集齐了！' : '完成一个，就离目标更近一点。'}}</text>
+    </view>
+
+    <view class="task-heading">
+      <view>
+        <text class="section-title">今天要做</text>
+        <text class="section-note">预计 {{totalMinutes}} 分钟 · 做完记得给自己一个拥抱</text>
+      </view>
+      <button class="round-add" bindtap="openComposer">+</button>
+    </view>
+
+    <view wx:if="{{tasks.length}}" class="task-list">
+      <view wx:for="{{tasks}}" wx:key="id" class="task-item {{item.done ? 'done' : ''}}">
+        <button class="check-button" data-id="{{item.id}}" bindtap="toggleTask">{{item.done ? '✓' : ''}}</button>
+        <view class="task-icon icon-{{item.categoryClass}}">{{item.icon}}</view>
+        <view class="task-copy" data-id="{{item.id}}" bindtap="toggleTask">
+          <text class="task-title">{{item.title}}</text>
+          <text class="task-meta">{{item.category}} · {{item.minutes}} 分钟</text>
+        </view>
+        <button class="delete-button" data-id="{{item.id}}" catchtap="deleteTask">×</button>
+      </view>
+    </view>
+
+    <view wx:else class="panel empty-state">
+      <image class="empty-image" src="/assets/plan-empty.png" mode="aspectFit" />
+      <text class="empty-title">今天还没有小计划</text>
+      <text class="empty-copy">按右上角的加号，写下第一件想完成的事。</text>
+    </view>
+  </view>
+
+  <view wx:if="{{activeView === 'courses'}}" class="courses-view">
+    <view class="course-intro panel">
+      <view>
+        <text class="section-title">一周课程表</text>
+        <text class="section-note">均衡安排，留一点时间给好奇心。</text>
+      </view>
+      <button class="generate-button" bindtap="generateCourses">重新生成</button>
+    </view>
+    <view class="course-list">
+      <view wx:for="{{courses}}" wx:key="weekday" class="course-item">
+        <view class="course-day">{{item.weekday}}</view>
+        <view class="course-line"></view>
+        <view class="course-card tone-{{item.color}}">
+          <text class="course-time">{{item.start}}</text>
+          <text class="course-title">{{item.title}}</text>
+          <text class="course-duration">{{item.duration}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{activeView === 'records'}}" class="records-view">
+    <view class="record-summary panel">
+      <text class="summary-kicker">累计完成</text>
+      <text class="summary-number">{{totalDone}}</text>
+      <text class="summary-copy">每一次勾选，都是成长留下的小脚印。</text>
+    </view>
+    <view class="history-heading record-heading">
+      <view>
+        <text class="section-title">最近 14 天</text>
+        <text class="section-note">回头看看，已经走了好远。</text>
+      </view>
+    </view>
+    <view wx:if="{{recordDays.length}}" class="record-list">
+      <view wx:for="{{recordDays}}" wx:key="key" class="record-item">
+        <view class="record-date">
+          <text>{{item.label}}</text>
+          <text>{{item.done}} / {{item.total}} 件</text>
+        </view>
+        <view class="record-track"><view class="record-fill" style="width: {{item.percent}}%;"></view></view>
+        <text class="record-percent">{{item.percent}}%</text>
+      </view>
+    </view>
+    <view wx:else class="panel empty-state">
+      <text class="empty-star">✦</text>
+      <text class="empty-title">完成计划后，这里会长出小星星</text>
+    </view>
+  </view>
+
+  <view wx:if="{{showComposer}}" class="modal-layer" catchtap="closeComposer">
+    <view class="composer" catchtap="noop">
+      <view class="composer-heading">
+        <view>
+          <text class="section-title">加一件小事</text>
+          <text class="section-note">今天的你，想先完成什么？</text>
+        </view>
+        <button class="close-button" bindtap="closeComposer">×</button>
+      </view>
+      <input class="task-input" maxlength="40" value="{{draft.title}}" placeholder="例如：认识 3 个颜色单词" bindinput="updateTitle" />
+      <view class="composer-row">
+        <picker mode="selector" range="{{categories}}" value="0" bindchange="chooseCategory">
+          <view class="composer-picker">{{draft.category}} <text class="chevron">⌄</text></view>
+        </picker>
+        <view class="minutes-input"><input type="number" maxlength="3" value="{{draft.minutes}}" bindinput="updateMinutes" /><text>分钟</text></view>
+      </view>
+      <button class="primary-button" bindtap="addTask">保存计划</button>
+    </view>
+  </view>
+  <view class="safe-bottom"></view>
+</view>

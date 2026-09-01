@@ -1,0 +1,180 @@
+server:
+  port: 8088
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+logging:
+  charset:
+    console: UTF-8
+    file: UTF-8
+  file:
+    name: logs/fashion-image-agent-demo.log
+  pattern:
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
+
+spring:
+  main:
+    headless: false
+  datasource:
+    url: ${DB_URL:jdbc:h2:file:./data/fashion-agent;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;AUTO_SERVER=TRUE}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+    driver-class-name: org.h2.Driver
+    hikari:
+      connection-timeout: 3000
+      initialization-fail-timeout: -1
+      maximum-pool-size: 5
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-h2.sql
+  servlet:
+    multipart:
+      max-file-size: ${STORY_VIDEO_MAX_FILE_SIZE:1GB}
+      max-request-size: ${STORY_VIDEO_MAX_REQUEST_SIZE:1GB}
+
+runninghub:
+  base-url: https://www.runninghub.cn
+  api-key: ${RUNNINGHUB_API_KEY:}
+  beauty-app-id: "2066795888403640322"
+  enhanced-beauty-app-id: "2039516680887472130"
+  outfit-app-id: "2062480340836511746"
+  audit-redraw-app-id: ${RUNNINGHUB_AUDIT_REDRAW_APP_ID:2057132474349735937}
+  video-motion-app-id: "1975951975441412098"
+  video-instance-type: ${RUNNINGHUB_VIDEO_INSTANCE_TYPE:plus}
+  clothing-directory: ${CLOTHING_DIRECTORY:clothing}
+  video-directory: ${VIDEO_AI_DIRECTORY:video_ai}
+  generated-directory: ${GENERATED_DIRECTORY:generated}
+  video-export-directory: ${VIDEO_EXPORT_DIRECTORY:E:/AI视频文件夹}
+  audit-redraw-output-directory: ${AUDIT_REDRAW_OUTPUT_DIRECTORY:E:/AI过审图}
+  poll-interval: 3s
+  task-timeout: 10m
+  upload-connect-timeout: 10s
+  upload-read-timeout: 90s
+  upload-max-attempts: 3
+  upload-retry-delay: 2s
+  max-upload-bytes: 20971520
+  download-max-attempts: 4
+  download-retry-delay: 2s
+  download-connect-timeout: ${RUNNINGHUB_DOWNLOAD_CONNECT_TIMEOUT:10s}
+  download-read-timeout: ${RUNNINGHUB_DOWNLOAD_READ_TIMEOUT:30s}
+  max-download-bytes: 20971520
+  video-poll-interval: ${RUNNINGHUB_VIDEO_POLL_INTERVAL:2m}
+  video-task-timeout: ${RUNNINGHUB_VIDEO_TASK_TIMEOUT:45m}
+  video-max-upload-bytes: ${RUNNINGHUB_VIDEO_MAX_UPLOAD_BYTES:209715200}
+  video-max-download-bytes: ${RUNNINGHUB_VIDEO_MAX_DOWNLOAD_BYTES:524288000}
+  video-download-max-attempts: ${RUNNINGHUB_VIDEO_DOWNLOAD_MAX_ATTEMPTS:12}
+  video-download-retry-delay: ${RUNNINGHUB_VIDEO_DOWNLOAD_RETRY_DELAY:5s}
+  video-download-allow-http-fallback: ${RUNNINGHUB_VIDEO_DOWNLOAD_ALLOW_HTTP_FALLBACK:true}
+  ffmpeg-path: ${FFMPEG_PATH:tools/ffmpeg/ffmpeg.exe}
+  ffprobe-path: ${FFPROBE_PATH:tools/ffprobe/ffprobe.exe}
+  ffmpeg-timeout: ${FFMPEG_TIMEOUT:15m}
+  video-motion-input-width: ${VIDEO_MOTION_INPUT_WIDTH:1080}
+  video-motion-input-height: ${VIDEO_MOTION_INPUT_HEIGHT:1920}
+  video-motion-input-max-pixels: ${VIDEO_MOTION_INPUT_MAX_PIXELS:2500000}
+  video-motion-input-frame-rate: ${VIDEO_MOTION_INPUT_FRAME_RATE:30}
+  video-motion-max-frames: ${VIDEO_MOTION_MAX_FRAMES:840}
+  video-motion-max-pixel-frames: ${VIDEO_MOTION_MAX_PIXEL_FRAMES:2000000000}
+  video-motion-resolution-preset: ${VIDEO_MOTION_RESOLUTION_PRESET:2}
+  video-output-width: ${VIDEO_OUTPUT_WIDTH:1080}
+  video-output-height: ${VIDEO_OUTPUT_HEIGHT:1920}
+  video-output-frame-rate: ${VIDEO_OUTPUT_FRAME_RATE:30}
+  video-transition-duration: ${VIDEO_TRANSITION_DURATION:1s}
+
+snapany:
+  base-url: ${SNAPANY_BASE_URL:https://api.snapany.com}
+  api-key: ${SNAPANY_API_KEY:}
+  proxy-enabled: ${SNAPANY_PROXY_ENABLED:${QWEN_PROXY_ENABLED:true}}
+  proxy-host: ${SNAPANY_PROXY_HOST:${QWEN_PROXY_HOST:127.0.0.1}}
+  proxy-port: ${SNAPANY_PROXY_PORT:${QWEN_PROXY_PORT:7897}}
+  target-quality: ${SNAPANY_TARGET_QUALITY:1080}
+  connect-timeout: ${SNAPANY_CONNECT_TIMEOUT:15s}
+  read-timeout: ${SNAPANY_READ_TIMEOUT:5m}
+  max-download-bytes: ${SNAPANY_MAX_DOWNLOAD_BYTES:524288000}
+  max-urls-per-import: ${SNAPANY_MAX_URLS_PER_IMPORT:50}
+  download-max-attempts: ${SNAPANY_DOWNLOAD_MAX_ATTEMPTS:3}
+  chromium-fallback-enabled: ${SNAPANY_CHROMIUM_FALLBACK_ENABLED:true}
+  chromium-executable: ${SNAPANY_CHROMIUM_EXECUTABLE:}
+  chromium-chunk-bytes: ${SNAPANY_CHROMIUM_CHUNK_BYTES:1048576}
+  chromium-startup-timeout: ${SNAPANY_CHROMIUM_STARTUP_TIMEOUT:20s}
+  download-retry-delay: ${SNAPANY_DOWNLOAD_RETRY_DELAY:3s}
+
+qwen:
+  base-url: ${QWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+  api-key: ${DASHSCOPE_API_KEY:${QWEN_API_KEY:}}
+  model: ${QWEN_VIDEO_SCRIPT_MODEL:qwen3.8-max}
+  connect-timeout: ${QWEN_CONNECT_TIMEOUT:60s}
+  read-timeout: ${QWEN_READ_TIMEOUT:30m}
+  proxy-enabled: ${QWEN_PROXY_ENABLED:true}
+  proxy-host: ${QWEN_PROXY_HOST:127.0.0.1}
+  proxy-port: ${QWEN_PROXY_PORT:7897}
+  max-video-bytes: ${QWEN_MAX_VIDEO_BYTES:7340032}
+  output-directory: ${QWEN_VIDEO_SCRIPT_DIRECTORY:generated/video-scripts}
+  # Automatic retries are disabled. Use the page's explicit retry action.
+  analysis-max-attempts: ${QWEN_ANALYSIS_MAX_ATTEMPTS:1}
+  analysis-retry-delay: ${QWEN_ANALYSIS_RETRY_DELAY:0s}
+
+comfyui:
+  video:
+    base-url: ${COMFYUI_VIDEO_BASE_URL:https://autodl.art}
+    token: ${COMFYUI_VIDEO_TOKEN:}
+    workflow-id: ${COMFYUI_VIDEO_WORKFLOW_ID:minimax_h3_lightx2v_v5_15s}
+    first-last-workflow-id: ${COMFYUI_VIDEO_FIRST_LAST_WORKFLOW_ID:minimax_h3_lightx2v}
+    directory: ${COMFYUI_VIDEO_DIRECTORY:generated/comfyui-video}
+    export-directory: ${COMFYUI_VIDEO_EXPORT_DIRECTORY:E:/AI视频文件夹}
+    poll-interval: ${COMFYUI_VIDEO_POLL_INTERVAL:10s}
+    task-timeout: ${COMFYUI_VIDEO_TASK_TIMEOUT:30m}
+    max-images: ${COMFYUI_VIDEO_MAX_IMAGES:9}
+    max-image-bytes: ${COMFYUI_VIDEO_MAX_IMAGE_BYTES:15728640}
+    max-total-image-bytes: ${COMFYUI_VIDEO_MAX_TOTAL_IMAGE_BYTES:62914560}
+    max-prompt-length: ${COMFYUI_VIDEO_MAX_PROMPT_LENGTH:4000}
+
+story:
+  video:
+    whisper-command: ${WHISPER_COMMAND:}
+    replication-directory: ${STORY_VIDEO_REPLICATION_DIRECTORY:E:/AI影视复刻}
+
+video:
+  bgm-directory: ${VIDEO_BGM_DIRECTORY:E:/ai-workspace/langchain4j-main/langchain4j-main/learning-examples/fashion-image-agent-demo/bgm}
+  bgm-output-directory: ${VIDEO_BGM_OUTPUT_DIRECTORY:E:/AI影视复刻}
+
+fashion:
+  rag:
+    enabled: ${FASHION_RAG_ENABLED:true}
+    knowledge-directory: ${FASHION_RAG_KNOWLEDGE_DIRECTORY:knowledge/fashion}
+    max-results: ${FASHION_RAG_MAX_RESULTS:3}
+    min-score: ${FASHION_RAG_MIN_SCORE:0.55}
+    max-segment-size: ${FASHION_RAG_MAX_SEGMENT_SIZE:450}
+    segment-overlap: ${FASHION_RAG_SEGMENT_OVERLAP:60}
+    max-context-length: ${FASHION_RAG_MAX_CONTEXT_LENGTH:1200}
+  ai:
+    enabled: ${FASHION_AI_ENABLED:true}
+    api-key: ${ZHIPU_API_KEY:}
+    base-url: ${ZHIPU_BASE_URL:https://open.bigmodel.cn/api/paas/v4}
+    model-name: ${FASHION_AI_MODEL:glm-4.6v-flash}
+    portrait-preset: ${FASHION_PORTRAIT_PRESET:亚洲面孔，20到30岁的成年女性，身材匀称健美、比例协调、姿态自然，穿着完整得体并适合公开展示的日常时尚服装，正面面向镜头自然站立，全身完整入镜，四肢清晰无遮挡，人物居中并在四周保留适度留白，9:16竖版人像构图}
+    portrait-output-width: ${FASHION_PORTRAIT_OUTPUT_WIDTH:1080}
+    portrait-output-height: ${FASHION_PORTRAIT_OUTPUT_HEIGHT:1920}
+    enhanced-portrait-output-width: ${FASHION_ENHANCED_PORTRAIT_OUTPUT_WIDTH:756}
+    enhanced-portrait-output-height: ${FASHION_ENHANCED_PORTRAIT_OUTPUT_HEIGHT:1344}
+    proxy-host: ${ZHIPU_PROXY_HOST:}
+    proxy-port: ${ZHIPU_PROXY_PORT:0}
+    timeout: 90s
+    busy-max-attempts: ${GLM_BUSY_MAX_ATTEMPTS:15}
+    busy-retry-interval: ${GLM_BUSY_RETRY_INTERVAL:10s}
+    max-image-dimension: 1536
+    max-portrait-attempts: 2
+    portrait-audit-max-retries: ${FASHION_PORTRAIT_AUDIT_MAX_RETRIES:2}
+    portrait-quality-pass-score: 75
+    portrait-prompt-alignment-pass-score: 70
+    portrait-anatomy-pass-score: 70
+    portrait-image-quality-pass-score: 70
+    max-outfit-attempts: 2
+    outfit-accept-and-learn-score: ${FASHION_OUTFIT_ACCEPT_AND_LEARN_SCORE:70}
+    quality-pass-score: 75
+    clothing-match-pass-score: 75
+    head-accessory-pass-score: 70
+    identity-pass-score: 70

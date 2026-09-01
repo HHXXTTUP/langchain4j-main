@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="使用 LangChain4j 和 OpenAI 图片模型生成图片">
+    <title>灵感画布 · AI 图片生成</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main class="shell">
+    <header class="hero">
+        <p class="eyebrow">LANGCHAIN4J IMAGE LAB</p>
+        <h1>把一句想法，变成一张图片。</h1>
+        <p class="intro">输入画面描述，后端将通过 LangChain4j 调用图片模型，并在这里直接展示结果。</p>
+    </header>
+
+    <section class="workspace" aria-label="AI 图片生成工作台">
+        <form id="generate-form" class="prompt-panel">
+            <div class="field-heading">
+                <label for="prompt">描述你想要的画面</label>
+                <span><strong id="character-count">0</strong> / 4000</span>
+            </div>
+            <textarea
+                    id="prompt"
+                    name="prompt"
+                    maxlength="4000"
+                    rows="7"
+                    placeholder="例如：一只戴圆框眼镜的橘猫，正在温暖的书房里用 Java 开发 AI 助手，精致扁平插画风格"
+                    required></textarea>
+
+            <div class="examples" aria-label="提示词示例">
+                <span>试试：</span>
+                <button type="button" class="example-chip" data-prompt="未来感上海夜景，雨后街道，电影级灯光，蓝紫色调">未来城市</button>
+                <button type="button" class="example-chip" data-prompt="一只戴圆框眼镜的橘猫正在用 Java 开发 AI 助手，精致扁平插画风格">编程橘猫</button>
+                <button type="button" class="example-chip" data-prompt="宁静的山间湖泊，清晨薄雾，水彩画风格，柔和自然光">山间晨雾</button>
+            </div>
+
+            <button id="generate-button" class="primary-button" type="submit">
+                <span class="button-label">生成图片</span>
+                <span class="spinner" aria-hidden="true"></span>
+            </button>
+
+            <p id="status" class="status" aria-live="polite">准备就绪。生成图片通常需要几十秒。</p>
+            <p id="error" class="error" role="alert" hidden></p>
+        </form>
+
+        <section class="preview-panel" aria-label="生成结果">
+            <div id="empty-state" class="empty-state">
+                <div class="empty-icon" aria-hidden="true">✦</div>
+                <h2>你的作品会出现在这里</h2>
+                <p>补充主体、环境、光线与艺术风格，通常能得到更稳定的结果。</p>
+            </div>
+
+            <figure id="result" class="result" hidden>
+                <img id="generated-image" alt="AI 生成结果">
+                <figcaption>
+                    <div>
+                        <span class="result-label">生成完成</span>
+                        <p id="revised-prompt"></p>
+                    </div>
+                    <a id="download-link" class="download-link" download="generated-image.png">保存图片</a>
+                </figcaption>
+            </figure>
+        </section>
+    </section>
+
+    <footer>
+        API Key 仅由后端环境变量读取，不会发送到浏览器。
+    </footer>
+</main>
+
+<script src="/app.js" defer></script>
+</body>
+</html>

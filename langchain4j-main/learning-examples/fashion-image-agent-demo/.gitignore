@@ -1,0 +1,4 @@
+/target/
+/clothing/*
+!/clothing/README.md
+!/clothing/.gitkeep

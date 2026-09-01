@@ -1,0 +1,9 @@
+.git
+.idea
+.venv-edge-tts
+target
+*.log
+dev-server.log
+dev-server-error.log
+README.md
+CLOUD_DEPLOYMENT.md

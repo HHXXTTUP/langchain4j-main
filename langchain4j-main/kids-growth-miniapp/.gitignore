@@ -1,0 +1,8 @@
+project.private.config.json
+node_modules/
+dist/
+.npm-cache/
+server/target/
+server/.venv-edge-tts/
+.DS_Store
+*.log

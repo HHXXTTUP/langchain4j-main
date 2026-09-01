@@ -1,0 +1,20 @@
+# Maven Java
+target/
+build/
+out/
+logs/
+*.class
+*.jar
+*.war
+*.log
+.idea/
+.vscode/
+*.iml
+*.iws
+.DS_Store
+*.zip
+*.7z
+
+# Runtime / cache files (do not commit)
+*.lock.db
+**/.snapany-edge-*/

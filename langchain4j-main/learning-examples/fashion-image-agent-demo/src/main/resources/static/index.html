@@ -1,0 +1,698 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="由确定性工作流和 LangChain4j 多模态 AI 协作完成的人像生成与智能换装工具">
+    <title>Atelier Flow · AI 智能换装</title>
+    <link rel="stylesheet" href="/style.css?v=20260831-video15">
+</head>
+<body>
+<div class="app-shell">
+<aside class="sidebar" aria-label="主菜单">
+    <a class="brand" href="#workbench" aria-label="Atelier Flow 工作台">
+        <span class="brand-mark">AF</span>
+        <span class="brand-copy"><strong>Atelier Flow</strong><small>AI Production Studio</small></span>
+    </a>
+    <nav class="sidebar-nav">
+        <button class="nav-item is-active" type="button" data-view="workbench" aria-current="page">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><span>工作台</span>
+        </button>
+        <button class="nav-item" type="button" data-view="tasks">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m4 6 1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg><span>任务列表</span>
+        </button>
+        <button class="nav-item" type="button" data-view="video-canvas">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><circle cx="12" cy="17" r="3"/><path d="m9.5 8.5 1.5 5M14.5 8.5 13 14M10 7h4"/></svg><span>视频工作台</span>
+        </button>
+        <button class="nav-item" type="button" data-view="dialogue-extraction">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12v2M8 9v8M12 5v14M16 8v10M20 11v4"/></svg><span>提取台词</span>
+        </button>
+        <button class="nav-item" type="button" data-view="video-bgm">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16M4 16h16M8 4v16M16 4v16"/><rect x="3" y="3" width="18" height="18" rx="2"/></svg><span>视频合成</span>
+        </button>
+        <button class="nav-item" type="button" data-view="direct-outfit">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4a3 3 0 0 1-6 0L4 7l2 5 2-1v9h8v-9l2 1 2-5-5-3Z"/></svg><span>人物换装</span>
+        </button>
+        <button class="nav-item" type="button" data-view="audit-redraw">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/><path d="m8 12 2.5 2.5L16 9"/></svg><span>过审重绘</span>
+        </button>
+        <button class="nav-item" type="button" data-view="video-script">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></svg><span>视频脚本</span>
+        </button>
+        <button class="nav-item" type="button" data-view="short-drama-director">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z"/><path d="m9 9 6 3-6 3zM7 3v2M17 3v2M7 19v2M17 19v2"/></svg><span>短剧导演</span>
+        </button>
+        <button class="nav-item" type="button" data-view="my-scripts">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5z"/><path d="M15 3v5h5M8 12h8M8 16h6"/></svg><span>我的剧本</span>
+        </button>
+        <button class="nav-item" type="button" data-view="script-replication">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3M5 8h2M5 16h2M17 8h2M17 16h2"/></svg><span>剧本复刻</span>
+        </button>
+        <button class="nav-item" type="button" data-view="knowledge">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7"/></svg><span>资料库</span>
+        </button>
+        <button class="nav-item" type="button" data-view="logs">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 9-3 3 3 3M12 15h5"/><rect x="3" y="4" width="18" height="16" rx="2"/></svg><span>日志</span>
+            <span id="log-alert-dot" class="nav-alert" hidden>!</span>
+        </button>
+        <button class="nav-item" type="button" data-view="account-settings">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/><path d="M19 3v4M17 5h4"/></svg><span>账号配置</span>
+        </button>
+    </nav>
+    <div class="sidebar-status">
+        <span id="system-state" class="system-state"><i></i><span>正在检查系统</span></span>
+        <div class="account-session"><span id="session-username">--</span><button id="logout-button" type="button">退出</button></div>
+    </div>
+</aside>
+
+<main class="app-main">
+    <section class="intro view-panel" data-view-panel="workbench">
+        <div>
+            <p class="eyebrow">WORKBENCH</p>
+            <h1>智能换装工作台</h1>
+        </div>
+        <p class="intro-copy">提交人物描述，并实时查看 LangChain4j 与 RunningHub 协作流程。</p>
+    </section>
+
+    <section class="studio view-panel" data-view-panel="workbench" aria-label="智能换装工作台">
+        <form id="generation-form" class="composer">
+            <div class="section-heading">
+                <div>
+                    <span class="step-number">01</span>
+                    <h2>人物描述</h2>
+                </div>
+                <span id="character-count">0 / 2000</span>
+            </div>
+
+            <label class="sr-only" for="prompt">人物描述词</label>
+            <textarea id="prompt" maxlength="2000" rows="7"
+                      placeholder="例如：卧室美女;沙滩美女;办公室美女;学校美女" required></textarea>
+
+            <fieldset class="portrait-mode-fieldset">
+                <legend>人物生成接口</legend>
+                <div class="segmented-control">
+                    <label>
+                        <input type="radio" name="portrait-generation-mode" value="STANDARD" checked>
+                        <span>普通版</span>
+                    </label>
+                    <label>
+                        <input type="radio" name="portrait-generation-mode" value="ENHANCED">
+                        <span>增强版</span>
+                    </label>
+                </div>
+            </fieldset>
+
+            <button id="submit-button" class="primary-button" type="submit">
+                <span>开始生成与换装</span>
+                <span class="loader" aria-hidden="true"></span>
+            </button>
+            <p id="readiness-message" class="readiness-message" aria-live="polite">正在检查 API Key 和服装目录……</p>
+            <p id="form-error" class="error-message" role="alert" hidden></p>
+        </form>
+
+        <section class="pipeline" aria-labelledby="pipeline-title">
+            <div class="section-heading">
+                <div>
+                    <span class="step-number">02</span>
+                    <h2 id="pipeline-title">Agent 流程</h2>
+                </div>
+                <div class="pipeline-actions">
+                    <span id="job-status">等待任务</span>
+                    <button id="start-current-job" type="button" disabled title="重新启动最近的任务，或使用当前输入创建任务">启动</button>
+                    <button id="stop-current-job" class="danger-button" type="button" disabled title="停止当前正在执行的任务">停止</button>
+                </div>
+            </div>
+
+            <ol class="agent-list">
+                <li data-stage="AI_ENRICHING_PORTRAIT_PROMPT">
+                    <span class="agent-index">1</span>
+                    <div><strong>提示词导演</strong><small>补充人物、环境、光线和构图</small></div>
+                    <span class="agent-state">等待</span>
+                </li>
+                <li data-stage="AGENT1_GENERATING_PERSON">
+                    <span class="agent-index">2</span>
+                    <div><strong>人物创作</strong><small>RunningHub 使用扩写提示词生成成年女性底图</small></div>
+                    <span class="agent-state">等待</span>
+                </li>
+                <li data-stage="AI_VERIFYING_PORTRAIT">
+                    <span class="agent-index">3</span>
+                    <div><strong>人物质检</strong><small>检查图片完整性、人体结构和提示词一致性</small></div>
+                    <span class="agent-state">等待</span>
+                </li>
+                <li data-stage="AGENT2_SELECTING_CLOTHING">
+                    <span class="agent-index">4</span>
+                    <div>
+                        <strong>服装挑选</strong>
+                        <small data-default-text="根据人物语义检索本地服装资料">根据人物语义检索本地服装资料</small>
+                        <small class="clothing-match-rule" hidden></small>
+                    </div>
+                    <span class="agent-state">等待</span>
+                </li>
+                <li data-stage="AI_ANALYZING_CLOTHING">
+                    <span class="agent-index">5</span>
+                    <div><strong>服装理解</strong><small>多模态模型识别服装、材质和头饰</small></div>
+                    <span class="agent-state">等待</span>
+                </li>
+                <li data-stage="AGENT3_REPLACING_OUTFIT">
+                    <span class="agent-index">6</span>
+                    <div><strong>换装工具</strong><small>使用动态提示词执行 RunningHub 工作流</small></div>
+                    <span class="agent-state">等待</span>
+                </li>
+                <li data-stage="AI_VERIFYING_OUTFIT">
+                    <span class="agent-index">7</span>
+                    <div><strong>视觉质检</strong><small>比较原图、服装图和结果图并决定是否重试</small></div>
+                    <span class="agent-state">等待</span>
+                </li>
+                <li data-stage="AGENT4_PRESENTING_RESULT">
+                    <span class="agent-index">8</span>
+                    <div><strong>结果呈现</strong><small>整理图片并写入回复区域</small></div>
+                    <span class="agent-state">等待</span>
+                </li>
+                <li data-stage="RAG_LEARNING_EXPERIENCE">
+                    <span class="agent-index">9</span>
+                    <div><strong>经验学习</strong><small>提取已验证策略和遗漏修复规则并更新 RAG</small></div>
+                    <span class="agent-state">等待</span>
+                </li>
+            </ol>
+            <p id="progress-message" class="progress-message" aria-live="polite">提交描述后，这里会显示实时进度。</p>
+        </section>
+    </section>
+
+    <section class="video-canvas-studio view-panel" data-view-panel="video-canvas" aria-labelledby="video-canvas-title" hidden>
+        <div class="knowledge-heading canvas-heading">
+            <div><p class="eyebrow">NODE WORKFLOW CANVAS</p><h2 id="video-canvas-title">视频工作台</h2></div>
+            <div class="canvas-heading-actions"><span id="canvas-run-state" class="video-api-badge">未运行</span><button type="button" data-canvas-action="run-workflow">运行工作流</button><button type="button" data-canvas-action="save">保存画布</button></div>
+        </div>
+       <div class="canvas-layout">
+            <aside class="canvas-library" aria-label="工作流节点库">
+                <div class="canvas-library-heading"><span>节点库</span><small>点击添加到画布</small></div>
+                <button class="canvas-library-item" type="button" draggable="true" data-canvas-add="script"><span class="canvas-library-icon is-script">01</span><span><strong>脚本解析</strong><small>地址 → 文案与人物</small></span><b>+</b></button>
+                <button class="canvas-library-item" type="button" draggable="true" data-canvas-add="audit"><span class="canvas-library-icon is-audit">02</span><span><strong>过审重绘</strong><small>图片 → 合规素材</small></span><b>+</b></button>
+                <button class="canvas-library-item" type="button" draggable="true" data-canvas-add="seedance"><span class="canvas-library-icon is-seedance">03</span><span><strong>15秒多图视频</strong><small>提示词/参考图 → 视频</small></span><b>+</b></button>
+                <button class="canvas-library-item" type="button" draggable="true" data-canvas-add="compose"><span class="canvas-library-icon is-compose">04</span><span><strong>视频合成</strong><small>视频 + BGM → 成片</small></span><b>+</b></button>
+                <div class="canvas-library-tip"><span class="canvas-tip-dot"></span><p>拖动节点标题移动位置；点击输出端点，再点击下游输入端点即可连线。</p></div>
+            </aside>
+            <div id="video-workflow-canvas" class="workflow-canvas" aria-label="视频工作流画布">
+                <svg id="workflow-edge-layer" class="workflow-edge-layer" aria-hidden="true"></svg>
+                <div class="canvas-grid-label">FLOW / 01</div>
+                <article class="workflow-node workflow-node-script" data-node-id="script-1" data-node-type="script" style="left:34px;top:42px">
+                    <div class="workflow-node-header"><span class="node-drag-handle"><span class="node-type-mark is-script">01</span><strong>脚本解析</strong></span><span class="workflow-node-status" data-node-status>待运行</span></div>
+                    <div class="workflow-node-body"><label>视频地址<input data-node-field="address" type="url" placeholder="粘贴视频地址"></label><button class="node-run-button" type="button" data-node-action="run">解析视频</button><p class="node-message" data-node-message>输入地址后生成可编辑脚本。</p><pre class="node-output" data-node-output hidden></pre></div>
+                    <button class="node-port port-in" type="button" data-port="in" aria-label="脚本解析输入端点"></button><button class="node-port port-out" type="button" data-port="out" aria-label="脚本解析输出端点"></button>
+                </article>
+                <article class="workflow-node workflow-node-audit" data-node-id="audit-1" data-node-type="audit" style="left:370px;top:184px">
+                    <div class="workflow-node-header"><span class="node-drag-handle"><span class="node-type-mark is-audit">02</span><strong>过审重绘</strong></span><span class="workflow-node-status" data-node-status>待运行</span></div>
+                    <div class="workflow-node-body"><p class="node-context" data-node-context>等待脚本解析节点输出人物上下文。</p><label class="node-file-label">上传待处理图片<input data-node-field="images" type="file" accept="image/png,image/jpeg,image/webp" multiple></label><label class="node-check"><input data-node-field="skip" type="checkbox"> 已过审，跳过重绘</label><button class="node-run-button" type="button" data-node-action="run">处理图片</button><p class="node-message" data-node-message>可一次上传多张，按顺序处理。</p><div class="node-output-gallery" data-node-gallery></div></div>
+                    <button class="node-port port-in" type="button" data-port="in" aria-label="过审重绘输入端点"></button><button class="node-port port-out" type="button" data-port="out" aria-label="过审重绘输出端点"></button>
+                </article>
+                <article class="workflow-node workflow-node-seedance" data-node-id="seedance-1" data-node-type="seedance" style="left:706px;top:184px">
+                    <div class="workflow-node-body"><p class="node-context" data-node-context>接收过审图片，生成 1-15 秒视频。</p><label>生成方式<select data-node-field="mode"><option value="online">线上生成（15秒多图工作流）</option><option value="local">本地视频</option></select></label><label>提示词<textarea data-node-field="prompt" rows="3" placeholder="描述镜头动作、环境和镜头运动"></textarea></label><label>时长<select data-node-field="duration"><option value="15">15 秒</option><option value="5">5 秒</option><option value="8">8 秒</option><option value="10">10 秒</option><option value="1">1 秒</option></select></label><label>输出分辨率<select data-node-field="resolution"><option value="768p竖">768p 竖版</option><option value="480p竖">480p 竖版</option><option value="768p横">768p 横版</option><option value="480p横">480p 横版</option><option value="768p(1:1)">768p 方形</option><option value="480p(1:1)">480p 方形</option></select></label><label>参考图片<input data-node-field="images" type="file" accept="image/png,image/jpeg,image/webp" multiple></label><label class="node-file-label" data-node-local-video>本地视频<input data-node-field="video" type="file" accept="video/mp4,video/quicktime,video/webm"></label><button class="node-run-button" type="button" data-node-action="run">生成多图视频</button><p class="node-message" data-node-message>线上任务完成后自动下载并传给第四步。</p><div class="node-video-output" data-node-video-output></div></div>
+                    <button class="node-port port-in" type="button" data-port="in" aria-label="Seedance 2.5 输入端点"></button><button class="node-port port-out" type="button" data-port="out" aria-label="Seedance 2.5 输出端点"></button>
+                </article>
+                <article class="workflow-node workflow-node-compose" data-node-id="compose-1" data-node-type="compose" style="left:706px;top:420px">
+                    <div class="workflow-node-header"><span class="node-drag-handle"><span class="node-type-mark is-compose">04</span><strong>视频合成</strong></span><span class="workflow-node-status" data-node-status>待运行</span></div>
+                    <div class="workflow-node-body"><p class="node-context" data-node-context>等待 Seedance 视频完成。</p><label class="node-file-label">原视频（可选）<input data-node-field="video" type="file" accept="video/mp4,video/quicktime,video/webm"></label><label>BGM<select data-node-field="bgm"><option value="">读取本地 BGM…</option></select><audio class="bgm-preview" data-node-bgm-audio controls preload="none" hidden></audio></label><label>成品名称<input data-node-field="name" type="text" placeholder="例如：夏日成片"></label><button class="node-run-button" type="button" data-node-action="run">合成成片</button><p class="node-message" data-node-message>优先使用第三步输出，输出保存到 E:\AI影视复刻。</p><div class="node-video-output" data-node-video-output></div></div>
+                    <button class="node-port port-in" type="button" data-port="in" aria-label="视频合成输入端点"></button><button class="node-port port-out" type="button" data-port="out" aria-label="视频合成输出端点"></button>
+                </article>
+                <div class="canvas-zoom-controls"><button type="button" data-canvas-action="zoom-out" aria-label="缩小画布">−</button><span id="canvas-zoom-label">100%</span><button type="button" data-canvas-action="zoom-in" aria-label="放大画布">+</button><button type="button" data-canvas-action="center" aria-label="居中画布">⌖</button></div>
+            </div>
+        </div>
+        <div class="canvas-footer"><span><i class="canvas-tip-dot"></i> 本地工作流状态自动保存在浏览器</span><span id="canvas-edge-count">已连接 3 个节点</span><span id="canvas-selection-label">未选择节点</span></div>
+    </section>
+
+    <section class="canvas-video-history-section view-panel" data-view-panel="video-canvas" aria-labelledby="canvas-video-history-title" hidden>
+        <div class="experience-heading"><div><p class="eyebrow">GENERATED VIDEO EXPORTS</p><h3 id="canvas-video-history-title">视频生成记录</h3></div><div class="canvas-history-toolbar"><span id="canvas-video-history-message" class="video-catalog-status">正在读取视频记录…</span><button id="refresh-canvas-video-history" type="button">刷新</button></div></div>
+        <div id="canvas-video-history" class="standalone-video-history"></div>
+    </section>
+
+    <section class="dialogue-extraction view-panel" data-view-panel="dialogue-extraction" aria-labelledby="dialogue-extraction-title" hidden>
+        <div class="knowledge-heading">
+            <div>
+                <p class="eyebrow">PRODUCTION SCRIPT</p>
+                <h2 id="dialogue-extraction-title">提取台词</h2>
+            </div>
+            <span class="video-api-badge">GLM + FFmpeg + Whisper</span>
+        </div>
+        <p class="intro-copy">上传本地视频或解析视频地址，按完整叙事段落整理场景、动作、镜头语言、对白、语气和转场，输出可直接使用的影视制作脚本。</p>
+        <div class="dialogue-extraction-inputs">
+            <form id="dialogue-extraction-url-form" class="story-url-form">
+                <label>视频地址<textarea id="dialogue-extraction-url" rows="2" placeholder="粘贴抖音或其他 SnapAny 支持的视频地址"></textarea></label>
+                <button id="dialogue-extraction-url-submit" type="submit">解析并分析</button>
+            </form>
+            <div class="dialogue-extraction-divider"><span>或</span></div>
+            <form id="dialogue-extraction-form" class="story-planner-form">
+                <label class="file-picker">选择本地视频（MP4/MOV/MKV/WEBM）<input id="dialogue-extraction-video" type="file" accept="video/mp4,video/quicktime,video/x-matroska,video/webm" required></label>
+                <div class="standalone-video-submit-row"><button id="dialogue-extraction-submit" type="submit">提取完整脚本</button><span id="dialogue-extraction-message" class="video-import-status"></span></div>
+            </form>
+        </div>
+        <div id="dialogue-extraction-result" class="production-script-result" hidden></div>
+    </section>
+
+    <section class="video-bgm-studio view-panel" data-view-panel="video-bgm" aria-labelledby="video-bgm-title" hidden>
+        <div class="knowledge-heading">
+            <div><p class="eyebrow">VIDEO COMPOSER</p><h2 id="video-bgm-title">视频合成</h2></div>
+            <span class="video-api-badge">FFmpeg · 本地 BGM</span>
+        </div>
+        <p class="intro-copy">上传原视频，选择本地 BGM。系统会读取原视频时长，自动循环或裁剪音乐，并将成品保存到 E:\AI影视复刻。</p>
+        <form id="video-bgm-form" class="video-bgm-form">
+            <label class="file-picker">选择原视频（MP4/MOV/MKV/WEBM）<input id="video-bgm-video" type="file" accept="video/mp4,video/quicktime,video/x-matroska,video/webm" required></label>
+            <label>选择 BGM<select id="video-bgm-select" required><option value="">正在读取本地 BGM…</option></select><audio id="video-bgm-audio" class="bgm-preview" controls preload="none" hidden></audio></label>
+            <label>成品视频名称<input id="video-bgm-name" type="text" maxlength="120" placeholder="例如：夏日街拍成片（默认自动命名）"></label>
+            <label class="video-bgm-ending-toggle"><span><input id="video-bgm-ending" type="checkbox"> 首尾反转效果</span><small>最后 3.5 秒定格并加入震动与结尾音效</small></label>
+            <label id="video-bgm-ending-wrap" hidden>选择结尾 BGM<select id="video-bgm-ending-select"><option value="">请先勾选首尾效果</option></select><audio id="video-bgm-ending-audio" class="bgm-preview" controls preload="none" hidden></audio></label>
+            <div class="standalone-video-submit-row"><button id="video-bgm-submit" type="submit">开始合成</button><span id="video-bgm-message" class="video-import-status"></span></div>
+        </form>
+        <div id="video-bgm-result" class="video-bgm-result" hidden></div>
+    </section>
+
+    <section class="direct-outfit-studio view-panel" data-view-panel="direct-outfit" aria-labelledby="direct-outfit-title" hidden>
+        <div class="knowledge-heading">
+            <div><p class="eyebrow">DIRECT OUTFIT</p><h2 id="direct-outfit-title">人物换装</h2></div>
+            <span class="video-api-badge">RunningHub Outfit Workflow</span>
+        </div>
+        <p class="intro-copy">上传人物原图和服装参考图，直接调用换装接口生成结果。人物身份、姿势、背景和构图保持不变，仅替换服装造型。</p>
+        <form id="direct-outfit-form" class="direct-outfit-form">
+            <label class="file-picker">人物原图<input id="direct-outfit-person" type="file" accept="image/png,image/jpeg,image/webp" required></label>
+            <label class="file-picker">服装参考图<input id="direct-outfit-clothing" type="file" accept="image/png,image/jpeg,image/webp" required></label>
+            <label>换装要求（可选）<textarea id="direct-outfit-prompt" rows="4" placeholder="默认保留人物脸部、姿势、背景和构图，只替换服装、发型和配饰"></textarea></label>
+            <div class="direct-outfit-preview"><img id="direct-outfit-person-preview" alt="人物原图预览" hidden><img id="direct-outfit-clothing-preview" alt="服装参考图预览" hidden></div>
+            <div class="standalone-video-submit-row"><button id="direct-outfit-submit" type="submit">开始换装</button><span id="direct-outfit-message" class="video-import-status"></span></div>
+        </form>
+        <div id="direct-outfit-result" class="direct-outfit-result" hidden></div>
+    </section>
+
+    <section class="direct-outfit-studio audit-redraw-studio view-panel" data-view-panel="audit-redraw" aria-labelledby="audit-redraw-title" hidden>
+        <div class="knowledge-heading">
+            <div><p class="eyebrow">AUDIT REDRAW</p><h2 id="audit-redraw-title">过审重绘</h2></div>
+            <span class="video-api-badge">RunningHub · 16:9</span>
+        </div>
+        <p class="intro-copy">上传一张图片，调用过审重绘工作流生成合规的16:9档案图。生成结果会自动保存到 E:\\AI过审图。</p>
+        <form id="audit-redraw-form" class="direct-outfit-form">
+            <label class="file-picker">选择图片（PNG/JPG/WEBP）<input id="audit-redraw-image" type="file" accept="image/png,image/jpeg,image/webp" required></label>
+            <div class="direct-outfit-preview"><img id="audit-redraw-preview" alt="待重绘图片预览" hidden></div>
+            <div class="standalone-video-submit-row"><button id="audit-redraw-submit" type="submit">开始过审重绘</button><span id="audit-redraw-message" class="video-import-status"></span></div>
+        </form>
+        <div id="audit-redraw-result" class="direct-outfit-result" hidden></div>
+    </section>
+
+    <section class="direct-outfit-studio video-script-studio view-panel" data-view-panel="video-script" aria-labelledby="video-script-title" hidden>
+        <div class="knowledge-heading">
+            <div><p class="eyebrow">QWEN VIDEO SCRIPT</p><h2 id="video-script-title">视频脚本</h2></div>
+            <span class="video-api-badge">通义千问 · 多模态分析</span>
+        </div>
+        <p class="intro-copy">输入视频地址，系统会先通过 SnapAny 下载视频，再交给千问生成可复刻的影视脚本。人物服装与样貌不在文案中描述，按上传参考图保持一致。</p>
+        <div class="video-script-tabs" role="tablist" aria-label="视频脚本视图">
+            <button class="is-active" type="button" role="tab" aria-selected="true" data-video-script-tab="submit">提交任务</button>
+            <button type="button" role="tab" aria-selected="false" data-video-script-tab="list">列表查询</button>
+        </div>
+        <div data-video-script-panel="submit">
+            <form id="video-script-form" class="story-url-form">
+                <label>视频地址<textarea id="video-script-address" rows="3" placeholder="粘贴视频地址"></textarea></label>
+                <div class="standalone-video-submit-row">
+                    <button id="video-script-download" type="button">只拉取视频</button>
+                    <button id="video-script-submit" type="submit">拉取并解析</button>
+                    <span id="video-script-message" class="video-import-status"></span>
+                </div>
+            </form>
+        </div>
+        <div data-video-script-panel="list" hidden>
+            <div class="experience-heading"><div><p class="eyebrow">LOCAL VIDEO SCRIPTS</p><h3>视频脚本列表</h3></div><button id="refresh-video-scripts" type="button">刷新列表</button></div>
+            <p id="video-script-list-message" class="video-catalog-status">正在读取视频列表…</p>
+            <div id="video-script-list" class="standalone-video-history"></div>
+        </div>
+        <div id="video-script-result" class="production-script-result" hidden></div>
+    </section>
+
+    <section class="short-drama-director-studio view-panel" data-view-panel="short-drama-director" aria-labelledby="short-drama-director-title" hidden>
+        <div class="knowledge-heading">
+            <div><p class="eyebrow">SHORT DRAMA DIRECTOR</p><h2 id="short-drama-director-title">短剧导演</h2></div>
+            <span class="video-api-badge">Skill Rules · Qwen 3.8 Max</span>
+        </div>
+        <p class="intro-copy">先输入短剧剧情大纲，导演会先生成可持续使用的剧本设定：人物资产、世界规则、情节走向、空间与镜头基调。第一集将在“我的剧本”中确认设定后单独推演。</p>
+        <div class="short-drama-layout">
+            <form id="short-drama-director-form" class="short-drama-form">
+                <div class="short-drama-field-grid">
+                    <label>导演模式<select id="short-drama-mode"><option value="FULL_EPISODE">创建剧本设定</option><option value="SCREENPLAY">写剧本设定</option><option value="DIALOGUE_DOCTOR">台词诊断</option><option value="ASSET_BREAKDOWN">拆资产</option><option value="STORYBOARD">做分镜</option><option value="SPEECH_SPEED">语速自检</option><option value="VIDEO_PROMPT">生成视频提示词</option><option value="QUALITY_REVIEW">审查</option></select></label>
+                    <label>动作强度<select id="short-drama-tier"><option value="R1">R1 克制</option><option value="R2" selected>R2 标准</option><option value="R3">R3 高燃</option></select></label>
+                    <label>发布平台<select id="short-drama-platform"><option value="抖音">抖音</option><option value="红果">红果</option><option value="通用">通用</option></select></label>
+                    <label>成片画幅<select id="short-drama-ratio"><option value="9:16">9:16 竖版</option><option value="16:9">16:9 横版</option></select></label>
+                </div>
+                <label>剧情、台词或创作要求<textarea id="short-drama-text" rows="13" maxlength="80000" placeholder="例如：女主在雨夜发现丈夫隐瞒的秘密，写一个 180 秒的短剧开场，情绪从克制怀疑升级到当面对质。"></textarea></label>
+                <label class="file-picker short-drama-file-picker">上传补充文件（TXT / MD / JSON / CSV / SRT / VTT / DOCX / PDF，最大 8 MB）<input id="short-drama-file" type="file" accept=".txt,.md,.json,.csv,.srt,.vtt,.docx,.pdf"></label>
+                <div class="standalone-video-submit-row"><button id="short-drama-submit" type="submit">开始导演创作</button><span id="short-drama-message" class="video-import-status">可输入文本、上传文件，或同时使用两者。</span></div>
+            </form>
+            <aside id="short-drama-result" class="short-drama-result" aria-live="polite"><div class="short-drama-result-empty"><span>DIRECTOR</span><p>提交任务后，导演输出会显示在这里。</p></div></aside>
+        </div>
+        <div class="experience-heading short-drama-history-heading"><div><p class="eyebrow">DIRECTOR HISTORY</p><h3>创作记录</h3></div><button id="refresh-short-drama-tasks" type="button">刷新记录</button></div>
+        <div id="short-drama-history" class="short-drama-history"><p class="knowledge-empty">正在读取创作记录…</p></div>
+    </section>
+
+    <section class="my-scripts-studio view-panel" data-view-panel="my-scripts" aria-labelledby="my-scripts-title" hidden>
+        <div class="knowledge-heading"><div><p class="eyebrow">SCRIPT LIBRARY</p><h2 id="my-scripts-title">我的剧本</h2></div><button id="refresh-my-scripts" type="button">刷新剧本</button></div>
+        <div class="my-scripts-layout">
+            <aside id="my-script-list" class="my-script-list"><p class="knowledge-empty">正在读取剧本…</p></aside>
+            <article id="my-script-detail" class="my-script-detail"><div class="short-drama-result-empty"><span>SCRIPT</span><p>从短剧导演创建剧本设定后，项目会自动归档在这里。</p></div></article>
+        </div>
+    </section>
+
+    <section class="script-replication-studio view-panel" data-view-panel="script-replication" aria-labelledby="script-replication-title" hidden>
+        <div class="knowledge-heading"><div><p class="eyebrow">SCRIPT TO VIDEO</p><h2 id="script-replication-title">剧本复刻</h2></div><button id="refresh-script-replication" type="button">刷新</button></div>
+        <div id="script-replication-empty" class="replication-empty">请先在“我的剧本”中打开某一集，并点击“剧本翻拍”。</div>
+        <div id="script-replication-content" hidden></div>
+    </section>
+
+    <section class="account-settings-studio view-panel" data-view-panel="account-settings" aria-labelledby="account-settings-title" hidden>
+        <div class="knowledge-heading"><div><p class="eyebrow">ACCOUNT CONTROL</p><h2 id="account-settings-title">账号配置</h2></div><div class="account-heading-actions"><button id="create-account-button" type="button">新增账号</button><button id="package-application-button" type="button">打包应用</button></div></div>
+        <p id="account-settings-message" class="video-catalog-status">正在读取账号配置…</p>
+        <div id="account-list" class="account-list"></div>
+        <form id="self-settings-form" class="account-settings-form" hidden>
+            <h3>我的模型 Key 与文件目录</h3><div id="self-settings-fields" class="account-field-grid"></div><button type="submit">保存我的配置</button>
+        </form>
+    </section>
+
+    <dialog id="account-editor" class="account-editor">
+        <form id="account-editor-form" method="dialog"><div class="account-editor-heading"><h3>账号配置</h3><button type="button" data-account-close aria-label="关闭">×</button></div><input id="account-id" type="hidden"><div id="account-editor-fields" class="account-field-grid"></div><div class="account-menu-grid" id="account-menu-grid"></div><div class="account-editor-actions"><button type="button" data-account-close>取消</button><button id="save-account-button" type="submit">保存</button></div></form>
+    </dialog>
+
+    <section id="debug-panel" class="debug-panel view-panel" data-view-panel="logs" aria-labelledby="debug-title" hidden>
+        <div class="debug-heading">
+            <div>
+                <p class="eyebrow">DEBUG LOG</p>
+                <h2 id="debug-title">接口错误日志</h2>
+            </div>
+            <button id="copy-debug-log" type="button">复制错误日志</button>
+        </div>
+        <p>请点击复制，然后把完整内容发给我。日志不会包含 API Key。</p>
+        <pre id="debug-log"></pre>
+    </section>
+
+    <section class="knowledge-studio view-panel" data-view-panel="knowledge" aria-labelledby="catalog-title" hidden>
+        <div class="knowledge-tabs" role="tablist" aria-label="本地资料类型">
+            <button class="is-active" type="button" role="tab" aria-selected="true" data-knowledge-tab="images">图片</button>
+            <button type="button" role="tab" aria-selected="false" data-knowledge-tab="videos">视频</button>
+        </div>
+        <div data-knowledge-panel="images">
+        <div class="knowledge-heading">
+            <div>
+                <p class="eyebrow">LOCAL KNOWLEDGE</p>
+                <h2 id="catalog-title">服装资料库</h2>
+            </div>
+            <button id="refresh-clothing-catalog" type="button">生成本地资料</button>
+        </div>
+        <div class="catalog-status-row">
+            <span id="catalog-status">正在读取服装资料……</span>
+            <progress id="catalog-progress" max="1" value="0"></progress>
+        </div>
+        <div id="clothing-profile-grid" class="clothing-profile-grid"></div>
+
+        <div class="experience-heading">
+            <div>
+                <p class="eyebrow">LEARNED EXPERIENCE</p>
+                <h3>任务经验库</h3>
+            </div>
+            <span id="experience-count">0 条经验</span>
+        </div>
+        <div id="experience-list" class="experience-list">
+            <p class="knowledge-empty">暂无通过质检并完成提取的任务经验。</p>
+        </div>
+        </div>
+
+        <div data-knowledge-panel="videos" hidden>
+            <div class="knowledge-heading video-catalog-heading">
+                <div>
+                    <p class="eyebrow">LOCAL VIDEO ASSETS</p>
+                    <h2>本地视频资料</h2>
+                </div>
+                <div class="video-catalog-actions">
+                    <button id="open-video-import" type="button">拉取视频</button>
+                    <button id="refresh-video-catalog" type="button">刷新视频</button>
+                </div>
+            </div>
+            <p id="video-catalog-status" class="video-catalog-status">正在读取 video_ai 目录……</p>
+            <form id="video-import-form" class="video-import-panel" hidden>
+                <div class="video-import-fields">
+                    <label>保存文件夹
+                        <input id="video-import-folder" name="folderName" type="text" placeholder="例如：202608" maxlength="80" required>
+                    </label>
+                    <label>视频地址内容
+                        <textarea id="video-import-content" name="content" rows="5" placeholder="粘贴一段包含多个视频链接的内容，支持空格、换行或标点分隔" required></textarea>
+                    </label>
+                </div>
+                <div class="video-import-footer">
+                    <button id="submit-video-import" type="submit">开始提取</button>
+                    <span id="video-import-status" class="video-import-status"></span>
+                </div>
+                <div id="video-import-items" class="video-import-items" aria-live="polite"></div>
+            </form>
+            <div id="video-folder-tabs" class="video-folder-tabs" role="tablist" aria-label="Video folders"></div>
+            <div id="video-catalog-grid" class="video-catalog-grid"></div>
+        </div>
+    </section>
+
+    <section id="result-section" class="results view-panel task-detail" data-view-panel="tasks" aria-labelledby="result-title" hidden>
+        <div class="result-heading">
+            <div>
+                <p class="eyebrow">TASK DETAIL</p>
+                <h2 id="result-title">任务链路详情</h2>
+            </div>
+            <div class="task-detail-actions">
+                <span id="result-badge">请选择任务</span>
+                <button id="close-task-detail" type="button" title="关闭任务详情">关闭</button>
+            </div>
+        </div>
+
+        <div class="task-detail-meta">
+            <div><span>任务</span><strong id="task-detail-prompt">-</strong></div>
+            <div><span>任务 ID</span><code id="task-detail-id">-</code></div>
+            <div><span>当前阶段</span><strong id="task-detail-stage">-</strong></div>
+            <div><span>执行时间</span><strong id="task-detail-time">-</strong></div>
+        </div>
+
+        <section class="step-log-panel task-chain-panel" aria-labelledby="step-log-title">
+            <div class="log-panel-heading">
+                <div>
+                    <h3 id="step-log-title">完整运行链路</h3>
+                    <span id="step-log-job">等待选择任务</span>
+                </div>
+                <div class="log-panel-actions">
+                    <button id="refresh-step-log" type="button">刷新</button>
+                    <button id="copy-step-log" type="button">复制</button>
+                </div>
+            </div>
+            <div id="step-log" class="step-log" aria-live="polite">点击任务列表中的“运行日志”查看完整步骤。</div>
+        </section>
+
+        <div id="empty-result" class="empty-result">
+            <span>AI</span>
+            <p>该任务暂时还没有可展示的图片结果。</p>
+        </div>
+
+        <div id="result-gallery" class="result-gallery"></div>
+    </section>
+
+    <section class="history view-panel" data-view-panel="tasks" aria-labelledby="history-title" hidden>
+        <div class="history-heading">
+            <div>
+                <p class="eyebrow">MYSQL TASKS</p>
+                <h2 id="history-title">任务列表</h2>
+            </div>
+            <button id="refresh-history" type="button">刷新历史</button>
+        </div>
+        <div class="task-tabs" role="tablist" aria-label="任务类型">
+            <button type="button" class="is-active" role="tab" aria-selected="true" data-task-tab="images">图片生成</button>
+            <button type="button" role="tab" aria-selected="false" data-task-tab="videos">视频生成</button>
+        </div>
+
+        <div data-task-panel="images">
+        <p id="history-message">这里展示人物生成、人物质检和换装结果。点击“生成视频”后，任务会进入视频生成列表。</p>
+        <div class="task-batch-toolbar">
+            <span id="selected-video-count">已选 0 项</span>
+            <button id="batch-generate-video" type="button" disabled>批量生成视频</button>
+        </div>
+        <div class="history-table-wrap">
+            <table class="history-table image-history-table">
+                <thead>
+                <tr>
+                    <th class="selection-column"><input id="select-all-video-sources" type="checkbox" aria-label="选择全部可生成视频的图片任务"></th>
+                    <th>创建时间</th>
+                    <th>人物描述</th>
+                    <th>生成原图</th>
+                    <th>换装结果</th>
+                    <th>状态</th>
+                    <th>人物质检</th>
+                    <th>当前步骤</th>
+                    <th>执行结果</th>
+                    <th>操作</th>
+                </tr>
+                </thead>
+                <tbody id="history-body">
+                <tr><td colspan="10" class="history-empty">正在读取图片生成记录……</td></tr>
+                </tbody>
+            </table>
+        </div>
+        </div>
+
+        <div data-task-panel="videos" hidden>
+        <p id="video-history-message">视频任务一次只处理一个图片任务，其中两个动作迁移片段并发执行。</p>
+        <div class="history-table-wrap">
+            <table class="history-table video-history-table">
+                <thead>
+                <tr>
+                    <th>创建时间</th>
+                    <th>来源图片任务</th>
+                    <th>本地参考视频</th>
+                    <th>状态</th>
+                    <th>视频 1</th>
+                    <th>视频 2</th>
+                    <th>视频质检</th>
+                    <th>最终视频</th>
+                    <th>执行结果</th>
+                    <th>操作</th>
+                </tr>
+                </thead>
+                <tbody id="video-history-body">
+                <tr><td colspan="10" class="history-empty">正在读取视频生成记录……</td></tr>
+                </tbody>
+            </table>
+        </div>
+        </div>
+    </section>
+
+    <section class="runtime-logs view-panel" data-view-panel="logs" aria-labelledby="runtime-log-title" hidden>
+        <div class="runtime-log-heading">
+            <div>
+                <p class="eyebrow">APPLICATION LOG</p>
+                <h2 id="runtime-log-title">异常与运行日志</h2>
+            </div>
+        </div>
+        <p>这里展示应用代码的原始运行日志与异常堆栈，每 3 秒自动刷新，不包含 API Key。</p>
+        <div class="log-workspace single-log">
+            <section class="raw-log-panel" aria-labelledby="raw-log-title">
+                <div class="log-panel-heading">
+                    <div>
+                        <h3 id="raw-log-title">运行日志</h3>
+                        <span>应用原始日志</span>
+                    </div>
+                    <div class="log-panel-actions">
+                        <button id="refresh-runtime-log" type="button">刷新日志</button>
+                        <button id="copy-runtime-log" type="button">复制日志</button>
+                    </div>
+                </div>
+                <pre id="runtime-log">正在加载运行日志……</pre>
+            </section>
+        </div>
+    </section>
+
+    <template id="result-card-template">
+        <article class="result-card">
+            <header class="result-card-heading">
+                <div>
+                    <span class="result-card-time"></span>
+                    <h3 class="result-card-prompt"></h3>
+                </div>
+                <div class="result-card-actions">
+                    <span class="result-card-status"></span>
+                    <button class="result-card-cancel" type="button" hidden>停止</button>
+                </div>
+            </header>
+            <div class="image-pair">
+                <figure>
+                    <div class="result-image-slot">
+                        <img class="result-original-image" alt="人物原图" hidden>
+                        <span class="result-original-placeholder">等待人物原图</span>
+                    </div>
+                    <figcaption>人物原图</figcaption>
+                </figure>
+                <figure>
+                    <div class="result-image-slot">
+                        <img class="result-final-image" alt="换装后的图片" hidden>
+                        <span class="result-final-placeholder">等待智能换装</span>
+                    </div>
+                    <figcaption>换装结果</figcaption>
+                </figure>
+            </div>
+            <div class="result-card-footer">
+                <figure class="result-clothing">
+                    <img class="result-clothing-image" alt="本次选择的服装" hidden>
+                    <figcaption class="result-clothing-caption">尚未选择服装</figcaption>
+                </figure>
+                <div class="result-card-details">
+                    <span class="result-card-id"></span>
+                    <p class="result-card-message"></p>
+                    <a class="result-final-link" href="#" target="_blank" rel="noopener" hidden>查看本地换装图</a>
+                </div>
+            </div>
+            <section class="portrait-analysis" hidden>
+                <div class="detail-heading">
+                    <div>
+                        <span class="detail-kicker">LANGCHAIN4J PROMPT DIRECTOR</span>
+                        <h4>人物提示词扩写</h4>
+                    </div>
+                    <span class="portrait-analysis-mode"></span>
+                </div>
+                <p class="portrait-analysis-summary"></p>
+                <dl class="analysis-fields">
+                    <div><dt>样貌与气质</dt><dd class="portrait-appearance"></dd></div>
+                    <div><dt>环境与光线</dt><dd class="portrait-environment"></dd></div>
+                    <div><dt>身材与姿态</dt><dd class="portrait-pose"></dd></div>
+                    <div><dt>构图与风格</dt><dd class="portrait-composition"></dd></div>
+                </dl>
+                <details>
+                    <summary>查看扩写后的人物生成提示词</summary>
+                    <pre class="portrait-generation-prompt"></pre>
+                </details>
+            </section>
+            <section class="portrait-history" hidden>
+                <div class="detail-heading">
+                    <div>
+                        <span class="detail-kicker">PORTRAIT EVALUATOR</span>
+                        <h4>人物生成与质检</h4>
+                    </div>
+                    <span class="portrait-attempt-count"></span>
+                </div>
+                <div class="portrait-attempt-list"></div>
+            </section>
+            <section class="ai-analysis" hidden>
+                <div class="detail-heading">
+                    <div>
+                        <span class="detail-kicker">LANGCHAIN4J ANALYSIS</span>
+                        <h4>服装视觉理解</h4>
+                    </div>
+                    <span class="analysis-mode"></span>
+                </div>
+                <p class="analysis-summary"></p>
+                <dl class="analysis-fields">
+                    <div><dt>头部配饰</dt><dd class="analysis-head-accessories"></dd></div>
+                    <div><dt>必须迁移</dt><dd class="analysis-must-transfer"></dd></div>
+                </dl>
+                <details>
+                    <summary>查看初始换装提示词</summary>
+                    <pre class="analysis-prompt"></pre>
+                </details>
+            </section>
+            <section class="attempt-history" hidden>
+                <div class="detail-heading">
+                    <div>
+                        <span class="detail-kicker">EVALUATOR · OPTIMIZER</span>
+                        <h4>生成与质检记录</h4>
+                    </div>
+                    <span class="attempt-count"></span>
+                </div>
+                <div class="attempt-list"></div>
+            </section>
+        </article>
+    </template>
+</main>
+</div>
+
+<div id="image-preview-modal" class="image-preview-modal" hidden role="dialog" aria-modal="true" aria-labelledby="image-preview-caption">
+    <div class="image-preview-dialog">
+        <button id="close-image-preview" class="image-preview-close" type="button" aria-label="关闭图片预览" title="关闭图片预览">×</button>
+        <img id="image-preview" alt="图片预览">
+        <p id="image-preview-caption"></p>
+    </div>
+</div>
+
+<script src="/app.js?v=20260831-qwen-network-2" defer></script>
+</body>
+</html>

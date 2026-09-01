@@ -1,0 +1,148 @@
+.animation-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 390px;
+  width: 100%;
+  margin-top: 20px;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 16px;
+}
+
+.word-animation.compact .animation-stage {
+  height: 300px;
+  margin-top: 16px;
+}
+
+.scene-object {
+  position: relative;
+  z-index: 2;
+  display: block;
+  font-size: 122px;
+  line-height: 1;
+  text-align: center;
+}
+
+.word-animation.compact .scene-object {
+  font-size: 104px;
+}
+
+.scene-word {
+  position: absolute;
+  z-index: 3;
+  bottom: 58px;
+  padding: 8px 20px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.82);
+  font-size: 30px;
+  font-weight: 800;
+}
+
+.word-animation.compact .scene-word {
+  bottom: 34px;
+}
+
+.scene-caption {
+  display: block;
+  margin-top: 16px;
+  color: #655c58;
+  font-size: 25px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.scene-cloud,
+.scene-sparkle {
+  position: absolute;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 46px;
+}
+
+.cloud-one {
+  top: 42px;
+  left: 48px;
+}
+
+.cloud-two {
+  top: 86px;
+  right: 54px;
+  font-size: 36px;
+}
+
+.sparkle-one {
+  top: 54px;
+  left: 42%;
+  font-size: 28px;
+}
+
+.sparkle-two {
+  top: 126px;
+  right: 30%;
+  font-size: 22px;
+}
+
+.is-playing .motion-bounce {
+  animation: scene-bounce 1.2s ease-in-out infinite;
+}
+
+.is-playing .motion-wiggle {
+  animation: scene-wiggle 1.3s ease-in-out infinite;
+}
+
+.is-playing .motion-float {
+  animation: scene-float 2s ease-in-out infinite;
+}
+
+.is-playing .motion-pulse {
+  animation: scene-pulse 1.5s ease-in-out infinite;
+}
+
+.is-playing .motion-twinkle {
+  animation: scene-twinkle 1s ease-in-out infinite;
+}
+
+.is-playing .motion-fly {
+  animation: scene-fly 1.8s ease-in-out infinite;
+}
+
+@keyframes scene-bounce {
+  0%, 100% { transform: translateY(12px) rotate(-4deg); }
+  50% { transform: translateY(-32px) rotate(4deg); }
+}
+
+@keyframes scene-wiggle {
+  0%, 100% { transform: rotate(-8deg) translateY(4px); }
+  50% { transform: rotate(8deg) translateY(-6px); }
+}
+
+@keyframes scene-float {
+  0%, 100% { transform: translateY(18px); }
+  50% { transform: translateY(-24px); }
+}
+
+@keyframes scene-pulse {
+  0%, 100% { transform: scale(0.92); }
+  50% { transform: scale(1.14); }
+}
+
+@keyframes scene-twinkle {
+  0%, 100% { transform: scale(0.82) rotate(-8deg); opacity: 0.8; }
+  50% { transform: scale(1.18) rotate(8deg); opacity: 1; }
+}
+
+@keyframes scene-fly {
+  0%, 100% { transform: translate(-20px, 12px) rotate(-5deg); }
+  50% { transform: translate(22px, -24px) rotate(5deg); }
+}
+
+@media (max-width: 560px) {
+  .animation-stage {
+    height: 330px;
+  }
+
+  .word-animation.compact .animation-stage {
+    height: 270px;
+  }
+}

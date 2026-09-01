@@ -1,0 +1,35 @@
+server:
+  port: ${SERVER_PORT:8090}
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+spring:
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
+  jackson:
+    default-property-inclusion: non_null
+
+kids:
+  ai:
+    enabled: ${CHILD_AI_ENABLED:true}
+    api-key: ${ZHIPU_API_KEY:}
+    base-url: ${ZHIPU_BASE_URL:https://open.bigmodel.cn/api/paas/v4}
+    model-name: ${CHILD_AI_MODEL:glm-4.6v-flash}
+    timeout: ${CHILD_AI_TIMEOUT:60s}
+  edge-tts:
+    enabled: ${EDGE_TTS_ENABLED:true}
+    python-command: ${EDGE_TTS_PYTHON:}
+    english-voice: ${EDGE_TTS_ENGLISH_VOICE:en-US-AnaNeural}
+    chinese-voice: ${EDGE_TTS_CHINESE_VOICE:zh-CN-XiaoyiNeural}
+    rate: ${EDGE_TTS_RATE:-8%}
+    pitch: ${EDGE_TTS_PITCH:+4Hz}
+    timeout: ${EDGE_TTS_TIMEOUT:30s}
+
+logging:
+  level:
+    dev.learning.kidsgrowth: INFO

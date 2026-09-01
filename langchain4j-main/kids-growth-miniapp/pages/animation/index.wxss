@@ -1,0 +1,182 @@
+.animation-page {
+  background: #fbf8ff;
+}
+
+.intro-row {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+
+.intro-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.intro-copy text {
+  display: block;
+}
+
+.intro-image {
+  flex: none;
+  width: 240rpx;
+  height: 150rpx;
+  border-radius: 14rpx;
+}
+
+.coming-banner {
+  display: flex;
+  align-items: center;
+  margin-bottom: 24rpx;
+  padding: 24rpx;
+  border: 2rpx solid #e3dbf4;
+  border-radius: 16rpx;
+  background: #f5f0ff;
+}
+
+.coming-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 70rpx;
+  height: 70rpx;
+  margin-right: 18rpx;
+  border-radius: 50%;
+  background: #8d83bd;
+  color: #ffffff;
+  font-size: 36rpx;
+}
+
+.coming-copy text {
+  display: block;
+}
+
+.coming-title {
+  color: #544b75;
+  font-size: 29rpx;
+  font-weight: 800;
+}
+
+.coming-note {
+  margin-top: 7rpx;
+  color: #827a9e;
+  font-size: 23rpx;
+  line-height: 1.5;
+}
+
+.field-heading,
+.option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.character-count {
+  color: #a09790;
+  font-size: 23rpx;
+}
+
+.prompt-input {
+  width: 100%;
+  height: 220rpx;
+  margin-top: 20rpx;
+  padding: 22rpx;
+  border: 2rpx solid #e9e1f2;
+  border-radius: 12rpx;
+  background: #fcfaff;
+  color: #443d39;
+  font-size: 29rpx;
+  line-height: 1.6;
+}
+
+.input-placeholder {
+  color: #b3aaa3;
+}
+
+.option-label {
+  display: block;
+  color: #524a46;
+  font-size: 27rpx;
+  font-weight: 800;
+}
+
+.option-note {
+  display: block;
+  margin-top: 5rpx;
+  color: #a09790;
+  font-size: 22rpx;
+}
+
+.picker-value {
+  min-width: 180rpx;
+  padding: 16rpx 18rpx;
+  border: 2rpx solid #e8def4;
+  border-radius: 10rpx;
+  background: #fbf8ff;
+  color: #655a8f;
+  font-size: 25rpx;
+  text-align: center;
+}
+
+.chevron {
+  margin-left: 8rpx;
+  color: #9d91c6;
+  font-size: 28rpx;
+}
+
+.style-block {
+  margin-top: 32rpx;
+}
+
+.style-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14rpx;
+  margin-top: 18rpx;
+}
+
+.style-chip {
+  min-height: 64rpx;
+  margin: 0;
+  padding: 0 22rpx;
+  border: 2rpx solid #e7dff2;
+  border-radius: 32rpx;
+  background: #ffffff;
+  color: #776c83;
+  font-size: 24rpx;
+  line-height: 64rpx;
+}
+
+.style-chip.active {
+  border-color: #8d83bd;
+  background: #8d83bd;
+  color: #ffffff;
+}
+
+.reserve-button {
+  width: 100%;
+  margin-top: 34rpx;
+}
+
+.ideas-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  color: #9187a8;
+  font-size: 23rpx;
+}
+
+.idea-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+}
+
+.idea-dot.coral {
+  background: #ec8074;
+}
+
+.idea-dot.mint {
+  background: #81c7b1;
+}
