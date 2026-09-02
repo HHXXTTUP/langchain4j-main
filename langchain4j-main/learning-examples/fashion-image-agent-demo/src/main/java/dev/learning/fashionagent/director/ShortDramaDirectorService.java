@@ -94,7 +94,8 @@ public class ShortDramaDirectorService {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("model", properties.getModel());
             body.put("messages", List.of(Map.of("role", "system", "content", system), Map.of("role", "user", "content", job.sourceText)));
-            body.put("stream", false); body.put("enable_thinking", true);
+            body.put("stream", false);
+            if (properties.isThinkingEnabled()) body.put("enable_thinking", true);
             JsonNode response = callQwenOnce(job, body, apiKey);
             String result = text(response);
             if (result == null || result.isBlank()) throw new IllegalStateException("千问未返回短剧导演结果");
@@ -114,8 +115,8 @@ public class ShortDramaDirectorService {
         QwenRestClientProvider.Selection selection = clients.select();
         String requestBody = mapper.writeValueAsString(body);
         long startedNanos = System.nanoTime();
-        LOGGER.info("短剧导演千问请求发送 id={} attempt=1/1 endpoint={} route={} mode={} sourceChars={} autoRetry=false",
-                job.id, endpoint, selection.route(), job.mode, job.sourceText.length());
+        LOGGER.info("短剧导演千问请求发送 id={} attempt=1/1 endpoint={} route={} mode={} sourceChars={} thinking={} autoRetry=false",
+                job.id, endpoint, selection.route(), job.mode, job.sourceText.length(), properties.isThinkingEnabled());
         LOGGER.info("短剧导演千问请求详情 id={} method=POST headers=[Authorization: Bearer **REDACTED**, Accept: application/json, Content-Type: application/json] bodyChars={} body={}",
                 job.id, requestBody.length(), requestBody);
         try {

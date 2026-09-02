@@ -27,10 +27,13 @@ public class MyScriptController {
     @GetMapping("/episodes/{id}") EpisodeView episode(@PathVariable UUID id) { return service.episode(id); }
     @PostMapping("/{id}/episodes/first") ResponseEntity<EpisodeView> firstEpisode(@PathVariable UUID id) { return ResponseEntity.accepted().body(service.startFirstEpisode(id)); }
     @PostMapping("/{id}/episodes") ResponseEntity<EpisodeView> continueEpisode(@PathVariable UUID id) { return ResponseEntity.accepted().body(service.continueEpisode(id)); }
+    @PostMapping("/episodes/{id}/rewrite") ResponseEntity<EpisodeView> rewriteEpisode(@PathVariable UUID id, @RequestBody RewriteRequest request) {
+        return ResponseEntity.accepted().body(service.rewriteEpisode(id, request == null ? null : request.idea(), request == null ? null : request.promptId()));
+    }
     @GetMapping("/{id}/characters") List<CharacterView> characters(@PathVariable UUID id) { return service.characters(id); }
     @PostMapping("/{id}/characters") ResponseEntity<Void> saveCharacters(@PathVariable UUID id, @RequestBody List<CharacterRequest> requests) { service.saveCharacters(id, requests); return ResponseEntity.ok().build(); }
-    @PostMapping("/episodes/{id}/replication-segments") List<SegmentView> prepareReplication(@PathVariable UUID id) { return service.prepareReplication(id); }
-    @PostMapping("/episodes/{id}/replication-segments/replan") List<SegmentView> replanReplication(@PathVariable UUID id) { return service.replanReplication(id); }
+    @PostMapping("/episodes/{id}/replication-segments") MyScriptService.ReplicationView prepareReplication(@PathVariable UUID id) { return service.prepareReplication(id); }
+    @PostMapping("/episodes/{id}/replication-segments/replan") MyScriptService.ReplicationView replanReplication(@PathVariable UUID id) { return service.replanReplication(id); }
     @GetMapping("/episodes/{id}/replication-segments") List<SegmentView> segments(@PathVariable UUID id) { return service.segments(id); }
     @PutMapping("/replication-segments/{id}") SegmentView updateSegment(@PathVariable UUID id, @RequestBody SegmentUpdateRequest request) { return service.updateSegment(id, request == null ? null : request.content(), request == null ? null : request.durationSeconds()); }
     @PostMapping("/replication-segments/{id}/generate") ResponseEntity<SegmentView> replicate(@PathVariable UUID id, @RequestBody ReplicateRequest request) {
@@ -38,4 +41,5 @@ public class MyScriptController {
     }
     public record ReplicateRequest(List<String> images, String resolution) {}
     public record SegmentUpdateRequest(String content, Integer durationSeconds) {}
+    public record RewriteRequest(String idea, UUID promptId) {}
 }

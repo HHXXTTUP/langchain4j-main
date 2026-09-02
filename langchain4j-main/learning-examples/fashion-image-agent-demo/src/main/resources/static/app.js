@@ -237,6 +237,7 @@ let selectedComfyUiFiles = [];
 let myScripts = [];
 let selectedMyScriptId = null;
 let selectedMyScriptEpisodeId = null;
+const expandedMyScriptProjects = new Set();
 const loadingReplicationEpisodes = new Set();
 
 initializeAccountSession();
@@ -261,7 +262,6 @@ setInterval(() => {
      if (currentView === "video-script") loadVideoScripts();
      if (currentView === "short-drama-director") loadShortDramaTasks();
      if (currentView === "my-scripts") loadMyScripts();
-     if (currentView === "script-replication" && selectedMyScriptEpisodeId) loadScriptReplication(selectedMyScriptEpisodeId);
   }, 10000);
 
 navItems.forEach((item) => item.addEventListener("click", () => authorizeAndActivateView(item.dataset.view, true)));
@@ -2588,6 +2588,7 @@ async function loadMyScripts() {
         myScripts = Array.isArray(items) ? items : [];
         if (!selectedMyScriptId && myScripts.length) selectedMyScriptId = myScripts[0].id;
         if (selectedMyScriptId && !myScripts.some(item => item.id === selectedMyScriptId)) selectedMyScriptId = myScripts[0]?.id || null;
+        if (selectedMyScriptId && !expandedMyScriptProjects.size) expandedMyScriptProjects.add(selectedMyScriptId);
         renderMyScripts();
     } catch (error) {
         myScriptList.replaceChildren(); const hint = document.createElement("p"); hint.className = "knowledge-empty"; hint.textContent = error.message || "读取剧本失败"; myScriptList.append(hint);
@@ -2599,10 +2600,20 @@ function renderMyScripts() {
     myScriptList.replaceChildren();
     if (!myScripts.length) { const empty = document.createElement("p"); empty.className = "knowledge-empty"; empty.textContent = "暂无已归档剧本。请先在短剧导演创建剧本设定。"; myScriptList.append(empty); myScriptDetail.innerHTML = '<div class="short-drama-result-empty"><span>SCRIPT</span><p>暂无剧本项目。</p></div>'; return; }
     myScripts.forEach(project => {
-        const button = document.createElement("button"); button.type = "button"; button.className = project.id === selectedMyScriptId ? "is-selected" : "";
-        const title = document.createElement("strong"); title.textContent = project.title || "未命名剧本";
-        const meta = document.createElement("small"); meta.textContent = `${(project.episodes || []).length} 集 · ${new Date(project.updatedAt).toLocaleString()}`;
-        button.append(title, meta); button.addEventListener("click", () => { selectedMyScriptId = project.id; selectedMyScriptEpisodeId = project.episodes?.[0]?.id || null; renderMyScripts(); }); myScriptList.append(button);
+        const group = document.createElement("div"); group.className = "my-script-tree-group";
+        const button = document.createElement("button"); button.type = "button"; button.className = `my-script-tree-parent ${project.id === selectedMyScriptId ? "is-selected" : ""}`;
+        const caret = document.createElement("span"); caret.className = "my-script-tree-caret"; caret.textContent = expandedMyScriptProjects.has(project.id) ? "▾" : "▸";
+        const copy = document.createElement("span"); const title = document.createElement("strong"); title.textContent = project.title || "未命名剧本"; const meta = document.createElement("small"); meta.textContent = `${(project.episodes || []).length} 集 · ${new Date(project.updatedAt).toLocaleString()}`; copy.append(title, meta); button.append(caret, copy);
+        button.addEventListener("click", () => { selectedMyScriptId = project.id; expandedMyScriptProjects.has(project.id) ? expandedMyScriptProjects.delete(project.id) : expandedMyScriptProjects.add(project.id); const first = project.episodes?.[0]; if (first) selectedMyScriptEpisodeId = first.id; renderMyScripts(); }); group.append(button);
+        if (expandedMyScriptProjects.has(project.id)) {
+            const children = document.createElement("div"); children.className = "my-script-tree-children";
+            (project.episodes || []).forEach(episode => {
+                const child = document.createElement("button"); child.type = "button"; child.className = `my-script-tree-episode ${episode.id === selectedMyScriptEpisodeId ? "is-selected" : ""}`;
+                child.textContent = `${episode.title || `第${episode.number}集`} · ${shortDramaStatusLabel(episode.status)}`;
+                child.addEventListener("click", event => { event.stopPropagation(); selectedMyScriptId = project.id; selectedMyScriptEpisodeId = episode.id; expandedMyScriptProjects.add(project.id); renderMyScripts(); }); children.append(child);
+            }); group.append(children);
+        }
+        myScriptList.append(group);
     });
     const project = myScripts.find(item => item.id === selectedMyScriptId);
     if (project) renderMyScriptDetail(project);
@@ -2614,21 +2625,72 @@ function renderMyScriptDetail(project) {
     const label = document.createElement("h4"); label.textContent = "剧本设定";
     const settings = document.createElement("div"); settings.className = "my-script-settings"; settings.textContent = project.settings || "暂无剧本设定";
     const actions = document.createElement("div"); actions.className = "my-script-actions";
-    const episodeLabel = document.createElement("h4"); episodeLabel.textContent = "分集内容";
-    const episodeTabs = document.createElement("div"); episodeTabs.className = "my-script-episodes";
     const episodes = project.episodes || [];
     if (!selectedMyScriptEpisodeId && episodes.length) selectedMyScriptEpisodeId = episodes[0].id;
-    episodes.forEach(episode => { const button = document.createElement("button"); button.type = "button"; button.className = episode.id === selectedMyScriptEpisodeId ? "is-selected" : ""; button.textContent = `${episode.title || `第${episode.number}集`} · ${shortDramaStatusLabel(episode.status)}`; button.addEventListener("click", () => { selectedMyScriptEpisodeId = episode.id; renderMyScriptDetail(project); }); episodeTabs.append(button); });
     const selected = episodes.find(episode => episode.id === selectedMyScriptEpisodeId) || episodes[0];
     const advance = document.createElement("button"); advance.type = "button";
     advance.textContent = episodes.length ? "再来一集" : "开始剧情推演";
     advance.addEventListener("click", () => continueMyScript(project.id, advance, episodes.length === 0)); actions.append(advance);
-    myScriptDetail.append(title, label, settings, actions, episodeLabel, episodeTabs);
+    myScriptDetail.append(title, label, settings, actions);
     if (!selected) return;
+    const episodeHeading = document.createElement("div"); episodeHeading.className = "my-script-selected-episode-heading";
+    const episodeLabel = document.createElement("h4"); episodeLabel.textContent = `${selected.title || `第${selected.number}集`} · ${shortDramaStatusLabel(selected.status)}`; episodeHeading.append(episodeLabel); myScriptDetail.append(episodeHeading);
     const message = document.createElement("p"); message.className = "short-drama-result-message"; message.textContent = selected.error || selected.message || "";
     const content = document.createElement("div"); content.className = "my-script-episode-content"; content.textContent = selected.content || "该集正在生成，请稍后刷新。";
     const replicate = document.createElement("button"); replicate.type = "button"; replicate.textContent = "剧本翻拍"; replicate.disabled = !selected.content; replicate.addEventListener("click", () => openScriptReplication(selected.id));
-    myScriptDetail.append(message, content, replicate);
+    const rewrite = document.createElement("button"); rewrite.type = "button"; rewrite.textContent = "重写本集"; rewrite.disabled = !selected.content || ["QUEUED", "RUNNING"].includes(selected.status);
+    const rewritePanel = document.createElement("div"); rewritePanel.className = "my-script-rewrite-panel"; rewritePanel.hidden = true;
+    const rewriteLabel = document.createElement("label"); rewriteLabel.textContent = "告诉导演你希望如何修改这一集";
+    const rewriteIdea = document.createElement("textarea"); rewriteIdea.rows = 5; rewriteIdea.maxLength = 12000; rewriteIdea.placeholder = "例如：保留人物和世界观，把冲突提前到开场，让结尾更有反转，删掉重复对白。"; rewriteLabel.append(rewriteIdea);
+    const rewriteActions = document.createElement("div"); rewriteActions.className = "my-script-rewrite-actions";
+    const cancelRewrite = document.createElement("button"); cancelRewrite.type = "button"; cancelRewrite.textContent = "取消"; cancelRewrite.addEventListener("click", () => { rewritePanel.hidden = true; });
+    const submitRewrite = document.createElement("button"); submitRewrite.type = "button"; submitRewrite.textContent = "提交重写"; submitRewrite.addEventListener("click", () => rewriteMyScriptEpisode(selected.id, rewriteIdea.value, submitRewrite, rewritePanel));
+    rewriteActions.append(cancelRewrite, submitRewrite); rewritePanel.append(rewriteLabel, rewriteActions);
+    rewrite.addEventListener("click", () => { rewritePanel.hidden = false; rewriteIdea.focus(); });
+    const episodeActions = document.createElement("div"); episodeActions.className = "my-script-episode-actions"; episodeActions.append(replicate, rewrite);
+    myScriptDetail.append(message, content, episodeActions, rewritePanel);
+    renderMyScriptPromptHistory(selected, project, myScriptDetail);
+}
+
+function renderMyScriptPromptHistory(episode, project, container) {
+    const heading = document.createElement("h4"); heading.textContent = "生成提示词与版本"; container.append(heading);
+    const prompts = Array.isArray(episode.prompts) ? episode.prompts : [];
+    if (!prompts.length) { const empty = document.createElement("p"); empty.className = "knowledge-empty"; empty.textContent = "暂无提示词记录，提交剧情推演或重写后会在这里保存。"; container.append(empty); return; }
+    const wrap = document.createElement("div"); wrap.className = "my-script-prompt-table-wrap";
+    const table = document.createElement("table"); table.className = "my-script-prompt-table";
+    const head = document.createElement("thead"); const tr = document.createElement("tr"); ["版本", "来源", "提示词", "生成剧本", "状态", "操作"].forEach(text => { const th = document.createElement("th"); th.textContent = text; tr.append(th); }); head.append(tr); table.append(head);
+    const body = document.createElement("tbody");
+    prompts.forEach(prompt => {
+        const row = document.createElement("tr");
+        const version = document.createElement("td"); version.textContent = `v${prompt.version}`;
+        const source = document.createElement("td"); source.textContent = prompt.sourceLabel || (prompt.sourceType === "SYSTEM" ? "系统推演" : "用户重写");
+        const promptCell = document.createElement("td"); const promptText = document.createElement("pre"); promptText.className = "my-script-prompt-text"; promptText.textContent = prompt.promptText || ""; promptCell.append(promptText); if (prompt.idea) { const idea = document.createElement("small"); idea.className = "my-script-prompt-idea"; idea.textContent = `重写想法：${prompt.idea}`; promptCell.append(idea); }
+        const result = document.createElement("td"); const resultText = document.createElement("pre"); resultText.className = "my-script-prompt-result"; resultText.textContent = prompt.resultContent || (prompt.status === "FAILED" ? (prompt.error || "生成失败") : "等待生成…"); result.append(resultText);
+        const status = document.createElement("td"); status.textContent = shortDramaStatusLabel(prompt.status);
+        const actions = document.createElement("td"); const rewrite = document.createElement("button"); rewrite.type = "button"; rewrite.textContent = "重写再生成"; rewrite.disabled = ["QUEUED", "RUNNING"].includes(episode.status) || prompt.status === "QUEUED" || prompt.status === "RUNNING"; rewrite.addEventListener("click", () => showPromptRewriteEditor(episode, prompt, project, rewrite)); actions.append(rewrite);
+        row.append(version, source, promptCell, result, status, actions); body.append(row);
+    });
+    table.append(body); wrap.append(table); container.append(wrap);
+}
+
+function showPromptRewriteEditor(episode, prompt, project, trigger) {
+    const panel = document.createElement("div"); panel.className = "my-script-rewrite-panel";
+    const label = document.createElement("label"); label.textContent = `基于 v${prompt.version} 继续修改本集`;
+    const input = document.createElement("textarea"); input.rows = 4; input.maxLength = 12000; input.value = prompt.idea || ""; input.placeholder = "补充你希望如何重写本集的想法"; label.append(input);
+    const actions = document.createElement("div"); actions.className = "my-script-rewrite-actions"; const cancel = document.createElement("button"); cancel.type = "button"; cancel.textContent = "取消"; cancel.addEventListener("click", () => panel.remove()); const submit = document.createElement("button"); submit.type = "button"; submit.textContent = "提交重写"; submit.addEventListener("click", () => rewriteMyScriptEpisode(episode.id, input.value, submit, panel, prompt.id)); actions.append(cancel, submit); panel.append(label, actions); trigger.closest("td")?.append(panel);
+}
+
+async function rewriteMyScriptEpisode(episodeId, idea, button, panel, promptId = null) {
+    const value = idea?.trim();
+    if (!value) { window.alert("请先填写本集重写想法"); return; }
+    button.disabled = true; button.textContent = "正在提交…";
+    try {
+        const response = await fetch(`/api/my-scripts/episodes/${episodeId}/rewrite`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({idea: value, promptId})});
+        const episode = await readJson(response); if (!response.ok) throw new Error(episode.message || "本集重写提交失败");
+        if (panel) panel.hidden = true;
+        await loadMyScripts(); pollMyScriptEpisode(episode.projectId, episode.id);
+    } catch (error) { window.alert(error.message || "本集重写提交失败"); }
+    finally { button.disabled = false; button.textContent = "提交重写"; }
 }
 
 async function continueMyScript(projectId, button, first = false) {
@@ -2664,13 +2726,13 @@ async function loadScriptReplication(episodeId) {
     loadingReplicationEpisodes.add(episodeId);
     try {
         const response = await fetch(`/api/my-scripts/episodes/${episodeId}/replication-segments`, {method: "POST"});
-        const segments = await readJson(response);
-        if (!response.ok) throw new Error(segments.message || "拆分复刻任务失败");
+        const payload = await readJson(response);
+        if (!response.ok) throw new Error(payload.message || "拆分复刻任务失败");
         const episode = myScripts.flatMap(item => item.episodes || []).find(item => item.id === episodeId);
         const charactersResponse = episode ? await fetch(`/api/my-scripts/${episode.projectId}/characters`, {cache: "no-store"}) : null;
         const characters = charactersResponse ? await readJson(charactersResponse) : [];
         if (charactersResponse && !charactersResponse.ok) throw new Error(characters.message || "读取角色资产失败");
-        scriptReplicationEmpty.hidden = true; scriptReplicationContent.hidden = false; renderScriptReplication(Array.isArray(segments) ? segments : [], Array.isArray(characters) ? characters : [], episode);
+        scriptReplicationEmpty.hidden = true; scriptReplicationContent.hidden = false; renderScriptReplication(Array.isArray(payload.segments) ? payload.segments : [], Array.isArray(characters) ? characters : [], episode, payload.episodeMaterial || null);
     } catch (error) { scriptReplicationEmpty.hidden = false; scriptReplicationEmpty.textContent = error.message || "加载剧本复刻失败"; scriptReplicationContent.hidden = true; }
     finally { loadingReplicationEpisodes.delete(episodeId); }
 }
@@ -2682,12 +2744,19 @@ function characterNamesForReplication(project, episode, assets) {
     return names.length ? names.slice(0, 12) : ["主角1"];
 }
 
-function renderScriptReplication(segments, assets, episode) {
+function renderScriptReplication(segments, assets, episode, episodeMaterial = null) {
     scriptReplicationContent.replaceChildren();
     const project = myScripts.find(item => item.id === episode?.projectId);
     const heading = document.createElement("div"); heading.className = "replication-flow-heading";
     const title = document.createElement("h3"); title.textContent = `${episode?.title || "当前剧集"} · 视频复刻流程`;
     const copy = document.createElement("p"); copy.textContent = "先锁定本集人物参考图，再逐段审核完整生成提示词。每段可重复生成，完成视频会保留在对应段落下方。"; heading.append(title, copy); scriptReplicationContent.append(heading);
+
+    const materialPanel = document.createElement("section"); materialPanel.className = "replication-episode-material";
+    const materialTitle = document.createElement("h4"); materialTitle.textContent = "本集资料 · 人物装束、环境与剧情锁定"; materialPanel.append(materialTitle);
+    const materialGrid = document.createElement("div"); materialGrid.className = "replication-material-grid";
+    const materialItems = [["人物与服装装束", episodeMaterial?.charactersWardrobe], ["环境与场面氛围", episodeMaterial?.environment], ["本集主要剧情", episodeMaterial?.plot], ["与上一集连续性", episodeMaterial?.continuity]];
+    materialItems.forEach(([label, value]) => { const item = document.createElement("article"); const name = document.createElement("strong"); name.textContent = label; const text = document.createElement("p"); text.textContent = value || "暂无资料"; item.append(name, text); materialGrid.append(item); });
+    materialPanel.append(materialGrid); scriptReplicationContent.append(materialPanel);
 
     const assetPanel = document.createElement("section"); assetPanel.className = "replication-assets";
     const assetTitle = document.createElement("h4"); assetTitle.textContent = "步骤 01 · 人物资产锁定"; assetPanel.append(assetTitle);
@@ -2719,7 +2788,7 @@ function renderScriptReplication(segments, assets, episode) {
             const response = await fetch(`/api/my-scripts/episodes/${episode.id}/replication-segments/replan`, {method: "POST"});
             const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "重新整理失败");
             const project = myScripts.find(item => item.id === episode.projectId); const saved = await fetch(`/api/my-scripts/${episode.projectId}/characters`, {cache: "no-store"});
-            renderScriptReplication(payload, saved.ok ? await readJson(saved) : [], project?.episodes?.find(item => item.id === episode.id) || episode);
+            renderScriptReplication(payload.segments || [], saved.ok ? await readJson(saved) : [], project?.episodes?.find(item => item.id === episode.id) || episode, payload.episodeMaterial || null);
         } catch (error) { window.alert(error.message || "重新整理失败"); }
         finally { replan.disabled = false; replan.textContent = "重新整理本集段落"; }
     });

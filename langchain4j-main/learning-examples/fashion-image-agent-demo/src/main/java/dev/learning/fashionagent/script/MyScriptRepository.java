@@ -10,7 +10,13 @@ interface MyScriptRepository {
     void saveEpisode(Episode episode);
     void saveSegment(Segment segment);
     void deleteSegments(UUID episodeId);
+    void saveReplicationMaterial(UUID episodeId, String materialJson);
+    void deleteReplicationMaterial(UUID episodeId);
+    Optional<String> findReplicationMaterial(UUID episodeId);
     void saveCharacterAsset(CharacterAsset asset);
+    void savePrompt(Prompt prompt);
+    Optional<Prompt> findPrompt(UUID id);
+    List<Prompt> listPrompts(UUID episodeId);
     List<Project> listProjects();
     Optional<Project> findProject(UUID id);
     Optional<Episode> findEpisode(UUID id);
@@ -26,4 +32,7 @@ interface MyScriptRepository {
                    UUID comfyTaskId, String error, Instant createdAt, Instant updatedAt) {}
     record CharacterAsset(UUID id, UUID projectId, String characterName, String roleLevel, String anchor,
                           String imageSourcesJson, int sortOrder, Instant createdAt, Instant updatedAt) {}
+    record Prompt(UUID id, UUID episodeId, int version, String sourceType, String sourceLabel, String idea,
+                  String promptText, String resultContent, String status, String error,
+                  Instant createdAt, Instant updatedAt) {}
 }

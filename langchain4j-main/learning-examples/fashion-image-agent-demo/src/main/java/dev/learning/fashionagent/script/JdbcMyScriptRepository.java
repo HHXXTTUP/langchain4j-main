@@ -37,12 +37,39 @@ class JdbcMyScriptRepository implements MyScriptRepository {
     @Override public void deleteSegments(UUID episodeId) {
         jdbc.update("DELETE FROM script_replication_segment WHERE episode_id=?", episodeId.toString());
     }
+    @Override public void saveReplicationMaterial(UUID episodeId, String materialJson) {
+        jdbc.update("""
+                INSERT INTO script_replication_episode_material (episode_id, material_json, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON DUPLICATE KEY UPDATE material_json=VALUES(material_json), updated_at=VALUES(updated_at)
+                """, episodeId.toString(), materialJson);
+    }
+    @Override public void deleteReplicationMaterial(UUID episodeId) {
+        jdbc.update("DELETE FROM script_replication_episode_material WHERE episode_id=?", episodeId.toString());
+    }
+    @Override public Optional<String> findReplicationMaterial(UUID episodeId) {
+        return safely(() -> jdbc.query("SELECT material_json FROM script_replication_episode_material WHERE episode_id=?",
+                (rs, n) -> rs.getString("material_json"), episodeId.toString()).stream().findFirst(), Optional.empty());
+    }
     @Override public void saveCharacterAsset(CharacterAsset a) {
         jdbc.update("""
                 INSERT INTO my_script_character_asset (id, project_id, character_name, role_level, anchor_text, image_sources_json, sort_order, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE role_level=VALUES(role_level), anchor_text=VALUES(anchor_text), image_sources_json=VALUES(image_sources_json), sort_order=VALUES(sort_order), updated_at=VALUES(updated_at)
                 """, a.id().toString(), a.projectId().toString(), a.characterName(), a.roleLevel(), a.anchor(), a.imageSourcesJson(), a.sortOrder(), Timestamp.from(a.createdAt()), Timestamp.from(a.updatedAt()));
+    }
+    @Override public void savePrompt(Prompt p) {
+        jdbc.update("""
+                INSERT INTO my_script_episode_prompt (id, episode_id, version_number, source_type, source_label, idea_text, prompt_text, result_content, status, error_message, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE source_type=VALUES(source_type), source_label=VALUES(source_label), idea_text=VALUES(idea_text), prompt_text=VALUES(prompt_text), result_content=VALUES(result_content), status=VALUES(status), error_message=VALUES(error_message), updated_at=VALUES(updated_at)
+                """, p.id().toString(), p.episodeId().toString(), p.version(), p.sourceType(), p.sourceLabel(), p.idea(), p.promptText(), p.resultContent(), p.status(), p.error(), Timestamp.from(p.createdAt()), Timestamp.from(p.updatedAt()));
+    }
+    @Override public Optional<Prompt> findPrompt(UUID id) {
+        return safely(() -> jdbc.query("SELECT * FROM my_script_episode_prompt WHERE id=?", (rs, n) -> prompt(rs), id.toString()).stream().findFirst(), Optional.empty());
+    }
+    @Override public List<Prompt> listPrompts(UUID episodeId) {
+        return safely(() -> jdbc.query("SELECT * FROM my_script_episode_prompt WHERE episode_id=? ORDER BY version_number", (rs, n) -> prompt(rs), episodeId.toString()), List.of());
     }
     @Override public List<Project> listProjects() { return safely(() -> jdbc.query("SELECT * FROM my_script_project ORDER BY updated_at DESC", (rs, n) -> new Project(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("source_job_id")), rs.getString("title"), rs.getString("settings_text"), rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant())), List.of()); }
     @Override public Optional<Project> findProject(UUID id) { return safely(() -> jdbc.query("SELECT * FROM my_script_project WHERE id=?", (rs, n) -> new Project(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("source_job_id")), rs.getString("title"), rs.getString("settings_text"), rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()), id.toString()).stream().findFirst(), Optional.empty()); }
@@ -54,5 +81,6 @@ class JdbcMyScriptRepository implements MyScriptRepository {
     private static Segment segment(java.sql.ResultSet rs) throws java.sql.SQLException { return new Segment(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("episode_id")), rs.getInt("segment_number"), rs.getString("content"), rs.getInt("duration_seconds"), rs.getString("status"), rs.getString("comfy_task_id") == null ? null : UUID.fromString(rs.getString("comfy_task_id")), rs.getString("error_message"), rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()); }
     private static CharacterAsset character(java.sql.ResultSet rs) throws java.sql.SQLException { return new CharacterAsset(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("project_id")), rs.getString("character_name"), rs.getString("role_level"), rs.getString("anchor_text"), rs.getString("image_sources_json"), rs.getInt("sort_order"), rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()); }
     private static Episode episode(java.sql.ResultSet rs) throws java.sql.SQLException { return new Episode(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("project_id")), rs.getInt("episode_number"), rs.getString("title"), rs.getString("content"), rs.getString("status"), rs.getString("message"), rs.getString("error_message"), rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()); }
+    private static Prompt prompt(java.sql.ResultSet rs) throws java.sql.SQLException { return new Prompt(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("episode_id")), rs.getInt("version_number"), rs.getString("source_type"), rs.getString("source_label"), rs.getString("idea_text"), rs.getString("prompt_text"), rs.getString("result_content"), rs.getString("status"), rs.getString("error_message"), rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()); }
     private static <T> T safely(Supplier<T> action, T fallback) { try { return action.get(); } catch (RuntimeException ignored) { return fallback; } }
 }

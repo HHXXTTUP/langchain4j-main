@@ -147,10 +147,10 @@ public class QwenVideoScriptService {
         body.put("model", properties.getModel());
         body.put("messages", List.of(message));
         body.put("stream", false);
-        body.put("enable_thinking", true);
+        if (properties.isThinkingEnabled()) body.put("enable_thinking", true);
         QwenRestClientProvider.Selection selection = clients.select();
-        LOGGER.info("千问视频脚本分析请求发送 endpoint={} route={} file={} payloadBytes={} videoFps=2 autoRetry=false",
-                chatCompletionsEndpoint, selection.route(), video, bytes.length);
+        LOGGER.info("千问视频脚本分析请求发送 endpoint={} route={} file={} payloadBytes={} videoFps=2 thinking={} autoRetry=false",
+                chatCompletionsEndpoint, selection.route(), video, bytes.length, properties.isThinkingEnabled());
         JsonNode response = selection.client().post().uri(chatCompletionsEndpoint)
                 .headers(h -> {
                     h.setBearerAuth(apiKey);

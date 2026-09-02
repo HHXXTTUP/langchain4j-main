@@ -106,8 +106,14 @@ qwen:
   base-url: ${QWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
   api-key: ${DASHSCOPE_API_KEY:${QWEN_API_KEY:}}
   model: ${QWEN_VIDEO_SCRIPT_MODEL:qwen3.8-max}
+  # Omit enable_thinking by default for the most compatible, low-latency
+  # non-streaming request. Set QWEN_THINKING_ENABLED=true when required.
+  thinking-enabled: ${QWEN_THINKING_ENABLED:false}
   connect-timeout: ${QWEN_CONNECT_TIMEOUT:60s}
   read-timeout: ${QWEN_READ_TIMEOUT:30m}
+  # The current network reaches DashScope through the local VPN proxy.
+  # Override with QWEN_PROXY_ENABLED=false only when direct TLS is known to
+  # work in the runtime environment.
   proxy-enabled: ${QWEN_PROXY_ENABLED:true}
   proxy-host: ${QWEN_PROXY_HOST:127.0.0.1}
   proxy-port: ${QWEN_PROXY_PORT:7897}

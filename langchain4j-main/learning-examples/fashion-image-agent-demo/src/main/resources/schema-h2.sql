@@ -109,6 +109,15 @@ CREATE TABLE IF NOT EXISTS my_script_episode (
     CONSTRAINT uq_my_script_episode_number UNIQUE(project_id, episode_number)
 );
 CREATE INDEX IF NOT EXISTS idx_my_script_episode_project ON my_script_episode(project_id, episode_number);
+CREATE TABLE IF NOT EXISTS my_script_episode_prompt (
+    id VARCHAR(36) PRIMARY KEY, episode_id VARCHAR(36) NOT NULL, version_number INT NOT NULL,
+    source_type VARCHAR(24) NOT NULL, source_label VARCHAR(64) NOT NULL, idea_text CLOB,
+    prompt_text CLOB NOT NULL, result_content CLOB, status VARCHAR(24) NOT NULL,
+    error_message CLOB, created_at TIMESTAMP(6) NOT NULL, updated_at TIMESTAMP(6) NOT NULL,
+    CONSTRAINT fk_my_script_prompt_episode FOREIGN KEY(episode_id) REFERENCES my_script_episode(id) ON DELETE CASCADE,
+    CONSTRAINT uq_my_script_prompt_version UNIQUE(episode_id, version_number)
+);
+CREATE INDEX IF NOT EXISTS idx_my_script_prompt_episode ON my_script_episode_prompt(episode_id, version_number);
 
 CREATE TABLE IF NOT EXISTS script_replication_segment (
     id VARCHAR(36) PRIMARY KEY, episode_id VARCHAR(36) NOT NULL, segment_number INT NOT NULL,
@@ -135,3 +144,7 @@ CREATE TABLE IF NOT EXISTS script_replication_generation (
     CONSTRAINT fk_script_replication_generation_segment FOREIGN KEY(segment_id) REFERENCES script_replication_segment(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_script_replication_generation_segment ON script_replication_generation(segment_id, created_at);
+CREATE TABLE IF NOT EXISTS script_replication_episode_material (
+    episode_id VARCHAR(36) PRIMARY KEY, material_json CLOB NOT NULL, updated_at TIMESTAMP(6) NOT NULL,
+    CONSTRAINT fk_script_replication_material_episode FOREIGN KEY(episode_id) REFERENCES my_script_episode(id) ON DELETE CASCADE
+);

@@ -11,10 +11,13 @@ public class QwenProperties {
     private URI baseUrl = URI.create("https://dashscope.aliyuncs.com/compatible-mode/v1");
     private String apiKey;
     private String model = "qwen3.8-max";
+    // Thinking can keep a non-streaming proxy connection idle for several
+    // minutes. Keep the compatible Chat Completions request lean by default.
+    private boolean thinkingEnabled = false;
     private Duration connectTimeout = Duration.ofSeconds(60);
     private Duration readTimeout = Duration.ofMinutes(30);
-    // Keep compatibility with the previously working local proxy setup. The
-    // client verifies the port at startup and falls back to direct access.
+    // The desktop runtime reaches DashScope through the local VPN proxy.
+    // Set QWEN_PROXY_ENABLED=false only when direct TLS is available.
     private boolean proxyEnabled = true;
     private String proxyHost = "127.0.0.1";
     private int proxyPort = 7897;
@@ -33,6 +36,8 @@ public class QwenProperties {
     public void setApiKey(String apiKey) { this.apiKey = apiKey; }
     public String getModel() { return model; }
     public void setModel(String model) { this.model = model; }
+    public boolean isThinkingEnabled() { return thinkingEnabled; }
+    public void setThinkingEnabled(boolean thinkingEnabled) { this.thinkingEnabled = thinkingEnabled; }
     public Duration getConnectTimeout() { return connectTimeout; }
     public void setConnectTimeout(Duration connectTimeout) { this.connectTimeout = connectTimeout; }
     public Duration getReadTimeout() { return readTimeout; }

@@ -18,3 +18,33 @@ logs/
 # Runtime / cache files (do not commit)
 *.lock.db
 **/.snapany-edge-*/
+
+# Generated / build / media artifacts (source-only repo)
+**/generated/
+**/video_ai/
+**/tools/
+**/download-tests/
+**/data/
+**/video/
+**/output/
+**/outputs/
+**/results/
+**/video-jobs/
+**/video-scripts/
+**/clothing/
+fashion-image-agent/
+
+# Large media / binary artifacts
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.wav
+*.mp3
+*.tar
+*.gz
+*.dll
+*.db
+*.key
+*.bin
+*.psd
