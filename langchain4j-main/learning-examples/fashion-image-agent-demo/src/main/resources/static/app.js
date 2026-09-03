@@ -2831,7 +2831,9 @@ function renderScriptReplication(segments, assets, episode, episodeMaterial = nu
     const assetGrid = document.createElement("div"); assetGrid.className = "replication-asset-grid";
     const characterSpecs = parseEpisodeCharacterSpecs(episodeMaterial?.charactersWardrobe);
     const names = characterNamesForReplication(project, episode, assets, episodeMaterial);
-    if (!names.length) {
+    const supportingNames = (episodeAssets || []).filter(asset => asset.assetType === "SUPPORTING_CHARACTER").map(asset => asset.assetName);
+    const allAssetNames = [...new Set([...names, ...supportingNames])];
+    if (!allAssetNames.length) {
         const empty = document.createElement("p"); empty.className = "knowledge-empty"; empty.textContent = "本集资料暂未识别到真实人物，请先在“我的剧本”生成基础人物图，或重新整理本集复刻资料。"; assetPanel.append(empty);
     }
     const fields = [];
@@ -2850,6 +2852,46 @@ function renderScriptReplication(segments, assets, episode, episodeMaterial = nu
         item.append(wardrobe, generateAsset, input, preview); assetGrid.append(item); fields.push({name, input, existing, index});
     });
     assetPanel.append(assetGrid);
+    const supportingPanel = document.createElement("section"); supportingPanel.className = "replication-supporting-character";
+    const supportingTitle = document.createElement("h5"); supportingTitle.textContent = "自定义本集配角";
+    const supportingHint = document.createElement("p"); supportingHint.textContent = "填写配角名称和关键细节，系统会结合剧本设定、本集剧情、服化道与画面风格补全形象并生成剧集参考图。";
+    const supportingForm = document.createElement("div"); supportingForm.className = "replication-supporting-form";
+    const supportingNameLabel = document.createElement("label"); supportingNameLabel.textContent = "配角名称";
+    const supportingName = document.createElement("input"); supportingName.type = "text"; supportingName.maxLength = 30; supportingName.placeholder = "例如：打手、掌柜、巡街捕快"; supportingNameLabel.append(supportingName);
+    const supportingDetailsLabel = document.createElement("label"); supportingDetailsLabel.textContent = "人物细节";
+    const supportingDetails = document.createElement("textarea"); supportingDetails.rows = 4; supportingDetails.maxLength = 2000; supportingDetails.placeholder = "例如：两名二十多岁的赌坊打手，体格壮实，旧黑短褂，腰缠粗布带，神情凶横但不是武林高手"; supportingDetailsLabel.append(supportingDetails);
+    const generateSupporting = document.createElement("button"); generateSupporting.type = "button"; generateSupporting.textContent = "生成配角图";
+    const supportingStatus = document.createElement("small"); supportingStatus.className = "replication-supporting-status";
+    const supportingGallery = document.createElement("div"); supportingGallery.className = "replication-supporting-gallery";
+    const renderSupportingAsset = asset => {
+        if (!asset?.assetName) return;
+        const oldCard = [...supportingGallery.children].find(node => node.dataset.assetName === asset.assetName);
+        if (oldCard) oldCard.remove();
+        const card = document.createElement("article"); card.className = "replication-supporting-card"; card.dataset.assetName = asset.assetName;
+        const cardName = document.createElement("strong"); cardName.textContent = asset.assetName;
+        const image = parseStoredImages(asset.imageSourcesJson)[0];
+        card.append(cardName);
+        if (image) {
+            const img = document.createElement("img"); img.src = image; img.alt = `${asset.assetName} 本集配角图`;
+            const link = document.createElement("a"); link.href = image; link.download = `${asset.assetName}-本集配角图.png`; link.textContent = "查看 / 下载";
+            card.append(img, link);
+        }
+        supportingGallery.prepend(card);
+    };
+    (episodeAssets || []).filter(asset => asset.assetType === "SUPPORTING_CHARACTER").forEach(renderSupportingAsset);
+    generateSupporting.addEventListener("click", async () => {
+        const name = supportingName.value.trim(); const prompt = supportingDetails.value.trim();
+        if (!name || !prompt) { window.alert("请填写配角名称和人物细节"); return; }
+        generateSupporting.disabled = true; generateSupporting.textContent = "正在设计并生成…"; supportingStatus.textContent = "Gemini 正在结合本集风格补全配角设定，随后生成图片";
+        try {
+            const response = await fetch(`/api/my-scripts/episodes/${episode.id}/assets/supporting-character`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({characterName: name, prompt})});
+            const asset = await readJson(response); if (!response.ok) throw new Error(asset.message || "生成配角图失败");
+            renderSupportingAsset(asset); supportingStatus.textContent = `${name} 已生成并保存，本集含该名称的段落会自动使用这张图。`;
+        } catch (error) { supportingStatus.textContent = error.message || "生成配角图失败"; window.alert(supportingStatus.textContent); }
+        finally { generateSupporting.disabled = false; generateSupporting.textContent = "生成配角图"; }
+    });
+    supportingForm.append(supportingNameLabel, supportingDetailsLabel, generateSupporting, supportingStatus);
+    supportingPanel.append(supportingTitle, supportingHint, supportingForm, supportingGallery); assetPanel.append(supportingPanel);
     const saveAssets = document.createElement("button"); saveAssets.type = "button"; saveAssets.textContent = "保存人物参考图";
     saveAssets.addEventListener("click", () => saveReplicationAssets(project.id, fields, saveAssets)); assetPanel.append(saveAssets); scriptReplicationContent.append(assetPanel);
 
@@ -2873,8 +2915,8 @@ function renderScriptReplication(segments, assets, episode, episodeMaterial = nu
         const card = document.createElement("article"); card.className = "replication-card";
         const head = document.createElement("div"); head.className = "replication-card-head"; const name = document.createElement("strong"); name.textContent = `段落 ${segment.number}`; const state = document.createElement("small"); state.textContent = segment.status || "READY"; head.append(name, state);
         const content = document.createElement("textarea"); content.className = "replication-segment-editor"; content.value = segment.content; content.rows = 13;
-        const segmentNames = names.filter(item => (segment.content || "").includes(item));
-        const references = document.createElement("p"); references.className = "replication-references"; references.textContent = `本段人物资产：${(segmentNames.length ? segmentNames : names).join("、")}（系统会自动复用已保存图片）`;
+        const segmentNames = allAssetNames.filter(item => (segment.content || "").includes(item));
+        const references = document.createElement("p"); references.className = "replication-references"; references.textContent = `本段人物资产：${(segmentNames.length ? segmentNames : allAssetNames).join("、")}（系统会自动复用已保存图片）`;
         const action = document.createElement("div"); action.className = "replication-card-actions"; const save = document.createElement("button"); save.type = "button"; save.textContent = "保存提示词修改"; save.addEventListener("click", () => saveReplicationSegment(segment.id, content.value, segment.durationSeconds, save)); const generate = document.createElement("button"); generate.type = "button"; generate.textContent = "复刻本段视频";
         generate.addEventListener("click", () => replicateScriptSegment(segment.id, [], generate)); action.append(save, generate); card.append(head, content, references, action); scriptReplicationContent.append(card);
         if (segment.comfyTaskId) { const history = document.createElement("div"); history.className = "replication-generation-output"; card.append(history); pollScriptReplicationVideo(segment.comfyTaskId, state, generate, history); }

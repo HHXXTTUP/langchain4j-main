@@ -45,6 +45,16 @@ public class AuditRedrawService {
         return PROMPT.replace("{CHARACTER_NAME}", name).replace("{CLOTHING_RULE}", wardrobe);
     }
 
+    /** Builds the same audit sheet without requiring an existing reference image. */
+    public static String auditGenerationPromptFor(String characterName, String characterDesign) {
+        String design = characterDesign == null ? "" : characterDesign.trim();
+        String prompt = auditPromptFor(characterName, null)
+                .replace("将上传的单人人物图片制作成", "根据给定角色设定从零生成")
+                .replace("严格锁定上传图的脸型、五官结构、发型、服装颜色材质纹理、鞋子和配饰，保持原服装完全一致。",
+                        "严格统一角色的脸型、五官结构、发型、服装颜色材质纹理、鞋子和配饰，所有格子保持完全一致。");
+        return "角色设定：" + design + "。" + prompt;
+    }
+
     private final RunningHubProperties properties;
     private final GptImageClient imageClient;
     private final GptImageProperties imageProperties;

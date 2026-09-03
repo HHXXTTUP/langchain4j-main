@@ -191,6 +191,52 @@ public class MyScriptService {
         } catch (Exception error) { throw new IllegalStateException("生成剧集环境图失败：" + rootMessage(error), error); }
     }
 
+    public EpisodeAssetView generateSupportingCharacter(UUID episodeId, String characterName, String description) {
+        MyScriptRepository.Episode episode = requireEpisode(episodeId);
+        MyScriptRepository.Project project = requireProject(episode.projectId());
+        String name = characterName == null ? "" : characterName.trim();
+        String details = description == null ? "" : description.trim();
+        if (name.isBlank()) throw new IllegalArgumentException("请填写配角名称");
+        if (details.isBlank()) throw new IllegalArgumentException("请填写配角外貌、身份或服装细节");
+        if (name.length() > 30) throw new IllegalArgumentException("配角名称不能超过30个字符");
+        if (details.length() > 2000) throw new IllegalArgumentException("配角描述不能超过2000个字符");
+        try {
+            EpisodeMaterial material = materialFor(episode);
+            String system = "你是短剧人物资产设计师。根据剧本设定、本集剧情和用户描述，补全一个只在本集使用的配角形象。"
+                    + "保持作品时代、地域、阶层、写实程度、色彩和服化道风格统一。只输出一段可直接用于文生图的中文角色设定，"
+                    + "必须写清年龄感、性别气质、脸型五官、发型、体型、服装层次与材质、鞋履配饰、身份痕迹和当前状态；"
+                    + "不得改名，不写环境、镜头、动作剧情、说明、Markdown或多个方案，控制在500字以内。";
+            String user = "【配角名称】\n" + name
+                    + "\n【用户描述】\n" + details
+                    + "\n【剧本设定】\n" + limitText(project.settings(), 6000)
+                    + "\n【本集正文】\n" + limitText(episode.content(), 6000)
+                    + "\n【本集人物与服装】\n" + limitText(material.charactersWardrobe(), 2500)
+                    + "\n【本集环境与风格】\n" + limitText(material.environment(), 2500);
+            String planned = cleanModelText(extractText(geminiClient.call(
+                    "剧情复刻/自定义配角/" + name, system, user, geminiProperties.requiredApiKey())));
+            if (planned.isBlank()) throw new IllegalStateException("Gemini 未返回配角形象设定");
+            String imagePrompt = AuditRedrawService.auditGenerationPromptFor(name, planned);
+            Path output = scriptEpisodeDirectory(project, episode.number()).resolve("复刻").resolve("人物资产")
+                    .resolve(safeFileName(name) + ".png").toAbsolutePath().normalize();
+            LOGGER.info("自定义剧集配角开始生成 episodeId={} character={} descriptionChars={} plannedChars={} output={}",
+                    episodeId, name, details.length(), planned.length(), output);
+            gptImageClient.generate(imagePrompt, output, gptImageProperties.requiredApiKey(), "2048x1152");
+            String image = "data:image/png;base64," + Base64.getEncoder().encodeToString(Files.readAllBytes(output));
+            Instant now = Instant.now();
+            MyScriptRepository.EpisodeAsset asset = new MyScriptRepository.EpisodeAsset(
+                    UUID.nameUUIDFromBytes((episodeId + ":SUPPORTING_CHARACTER:" + name).getBytes(StandardCharsets.UTF_8)),
+                    episodeId, "SUPPORTING_CHARACTER", name, imagePrompt,
+                    mapper.writeValueAsString(List.of(image)), now, now);
+            repository.saveEpisodeAsset(asset);
+            syncArtifactsQuietly(project.id());
+            LOGGER.info("自定义剧集配角生成完成 episodeId={} character={} outputBytes={}", episodeId, name, Files.size(output));
+            return episodeAssetView(asset);
+        } catch (Exception error) {
+            LOGGER.error("自定义剧集配角生成失败 episodeId={} character={} reason={}", episodeId, name, rootMessage(error), error);
+            throw new IllegalStateException("生成本集配角失败：" + rootMessage(error), error);
+        }
+    }
+
     private Path decodeImageSource(String source, String stem) throws Exception {
         if (source == null || source.isBlank()) throw new IllegalArgumentException("人物尚未配置基础图");
         if (!source.startsWith("data:")) return Path.of(source);
@@ -358,7 +404,17 @@ public class MyScriptService {
                 .filter(asset -> segment.content() != null && segment.content().contains(asset.characterName()))
                 .toList();
         List<String> references = new ArrayList<>();
-        for (MyScriptRepository.CharacterAsset asset : (matchedAssets.isEmpty() ? assets : matchedAssets)) try { JsonNode node = mapper.readTree(asset.imageSourcesJson()); if (node.isArray()) node.forEach(v -> { if (v.isTextual() && !v.asText().isBlank()) references.add(v.asText()); }); } catch (Exception ignored) { }
+        List<MyScriptRepository.EpisodeAsset> episodeCharacters = repository.listEpisodeAssets(episode.id()).stream()
+                .filter(asset -> "CHARACTER".equalsIgnoreCase(asset.assetType()) || "SUPPORTING_CHARACTER".equalsIgnoreCase(asset.assetType()))
+                .filter(asset -> segment.content() != null && segment.content().contains(asset.assetName()))
+                .toList();
+        for (MyScriptRepository.EpisodeAsset asset : episodeCharacters) addImageSources(references, asset.imageSourcesJson());
+        List<MyScriptRepository.CharacterAsset> selectedProjectAssets = matchedAssets;
+        if (episodeCharacters.isEmpty() && selectedProjectAssets.isEmpty()) selectedProjectAssets = assets;
+        for (MyScriptRepository.CharacterAsset asset : selectedProjectAssets) {
+            boolean replacedByEpisodeAsset = episodeCharacters.stream().anyMatch(item -> item.assetName().equals(asset.characterName()));
+            if (!replacedByEpisodeAsset) addImageSources(references, asset.imageSourcesJson());
+        }
         if (references.isEmpty() && images != null) references.addAll(images);
         if (references.isEmpty()) throw new IllegalStateException("请先在复刻页面角色资产区上传参考图");
         String generationPrompt = buildGenerationPrompt(project.settings(), episode, segment.number(), segment.content(), materialFor(episode));
@@ -374,8 +430,9 @@ public class MyScriptService {
         return """
                 你是资深影视分镜和镜头语言分析师。只允许调用一次 Gemini，必须一次性返回当前集资料和全部段落，严禁为每个段落再次请求模型或输出第二个版本。输出严格为JSON对象，不要Markdown：
                 {"episodeMaterial":{"charactersWardrobe":"本集实际出场人物、人物关系、当前服装装束和资产短锚点","environment":"本集实际场景、空间锚点、光线方向、环境压力、色彩、画质、景深和现场氛围","plot":"本集主要剧情、冲突推进、情绪曲线、关键道具和结尾钩子","continuity":"承接上一集的具体动作、视线、光源、轴线和情绪变化"},"segments":[{"text":"一段完整、独立、可直接交给视频模型的中文复刻描述","plotBeat":"本段独立且不可替代的剧情推进","characters":"本段实际出场人物、人物关系、当前服装装束和资产锚点","environment":"本段实际环境、空间锚点和场面氛围","camera":"构图、景别、视角、焦段感和摄影机运镜","visual":"清晰度、真实光线、色彩、景深","performance":"可观察的表情生理变化、动作因果、受力和视线落点","sound":"对白原文、说话人、语气、停顿和现场声音，不提字幕","handoff":"本段结尾如何把动作、视线、光源、轴线和情绪交给下一段","durationSeconds":15}]}
-                按当前集真实剧情和镜头边界拆段，不要为了凑固定段数切碎同一场戏：同一时间、同一空间、同一机位和同一组连续动作尽量合并为一个段落，按不超过30秒的动作与对白容量写足；只有发生明确的场景、时间、机位或空间关系变化时才拆开，即使新段较短也允许。通常输出6至10段，但以因果和镜头完整为准，不能复制内容；durationSeconds按视频接口限制填1至15。
+                按当前集真实剧情和镜头边界拆段，不要为了凑固定段数切碎同一场戏：同一时间、同一空间、同一机位和同一组连续动作尽量合并为一个段落，优先把该镜头在不超过30秒内能够自然发生的完整动作容量一次写完；只有发生明确的场景、时间、机位或空间关系变化时才拆开，即使新段较短也允许。通常输出6至10段，但以因果和镜头完整为准，不能复制内容；durationSeconds按视频接口限制填1至15。若一个镜头的剧情自然不足30秒，可以提前收束，不得虚构事件或用环境描写灌水。
                 segments[].text严格只包含两个自然段，不得有标题、字段名、冒号标签、分号清单或Markdown。第一自然段只建立一次本段镜头：直接写环境和空间锚点，再写主体构图、景别、视角、焦段感和摄影机运镜，控制在1至2句；这一段不要写人物资料、剧情动作或对白。第二自然段必须紧接第一段开始的动作，禁止再次写地点、环境氛围、构图、景别、焦段、镜头或运镜，也禁止用换一种说法重复第一段的环境。第二自然段按当前集真实剧情顺序写足同一镜头内的连续动作，至少展开5个有先后关系的可见动作或反应，例如接近、试探、受阻、改变策略和产生结果；把实际出场人物真实姓名、外貌、当集服装装束、动作因果、受力、表情生理变化、视线落点、光线如何作用于人物和道具、清晰度、景深、对白（用中文双引号标记）和现场声音融入正文，并写出动作结果；同一镜头下第二段建议260至420个汉字，对白量控制在30秒可说完，不能用空泛形容词凑字数。发生新场景或新机位时，第一段重新建立新的环境和构图，第二段仍只写该新镜头的剧情，不回写旧镜头。
+                为保证一段覆盖接近30秒，第二自然段应优先写满320至520个汉字，完整呈现起因、连续动作、受阻、反应、策略变化、对白、现场声音、结果和下一步动因；允许剧情自然提前结束，但禁止用重复环境、重复镜头或无效形容词凑长度。
                 所有细节必须顺着剧情写，不能拆成“画面质感”“表情动作与视线”“对白与声音”“连续性衔接”等字段。不得在text中出现“本段剧情推进”“本段人物与装束”“本段环境与场面氛围”“构图与摄影机”“画面质感”“表情动作与视线”“对白与声音”“连续性衔接”“同上一段一致”“同上一集一致”等标签或占位语句，也不要写字幕、分镜编号、时间轴、规则解释或空泛形容词。段落分隔必须使用真正的空行，不得输出字面量“\\n”或“nn”。结构化字段plotBeat、characters、environment、camera、visual、performance、sound、handoff仅作隐藏元数据，严禁复制到text。每段必须基于当前集真实剧情，段落之间有因果推进且内容不可重复；人物外貌按上传参考资产1:1复刻，服装按本集资料保持，不自行改变。""";
     }
     private ReplicationPlan planReplication(MyScriptRepository.Episode episode) {
@@ -429,6 +486,27 @@ public class MyScriptService {
                 .replaceAll("\\n[ \\t]*\\n+", "\n\n").trim();
         return cleaned;
     }
+
+    private void addImageSources(List<String> target, String imagesJson) {
+        try {
+            JsonNode node = mapper.readTree(imagesJson == null ? "[]" : imagesJson);
+            if (node.isArray()) node.forEach(value -> {
+                if (value.isTextual() && !value.asText().isBlank() && !target.contains(value.asText())) target.add(value.asText());
+            });
+        } catch (Exception ignored) { }
+    }
+
+    private static String cleanModelText(String value) {
+        if (value == null) return "";
+        return value.replaceFirst("^```(?:text|markdown)?", "").replaceFirst("```$", "")
+                .replaceAll("(?m)^\\s*#+\\s*", "").replaceAll("\\s+", " ").trim();
+    }
+
+    private static String limitText(String value, int maxLength) {
+        if (value == null) return "";
+        String trimmed = value.trim();
+        return trimmed.length() <= maxLength ? trimmed : trimmed.substring(0, maxLength);
+    }
     private static String segmentText(JsonNode item) {
         String text = item.path("text").asText(item.path("prompt").asText("")).trim();
         if (!text.isBlank()) return text;
@@ -461,7 +539,7 @@ public class MyScriptService {
         long forbidden = segments.stream().filter(item -> containsInternalContinuity(item.content())).count();
         double averageLength = segments.stream().mapToInt(item -> item.content() == null ? 0 : item.content().length()).average().orElse(0);
         // The two-block protocol needs a real camera setup plus a sufficiently detailed action beat.
-        return forbidden > 0 || averageLength < 260;
+        return forbidden > 0 || averageLength < 320;
     }
     private static boolean containsInternalContinuity(String text) {
         if (text == null) return false;
