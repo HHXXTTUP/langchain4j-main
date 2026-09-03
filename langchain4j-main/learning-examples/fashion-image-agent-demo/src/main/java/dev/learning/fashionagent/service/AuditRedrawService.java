@@ -1,8 +1,6 @@
 package dev.learning.fashionagent.service;
 
 import dev.learning.fashionagent.config.RunningHubProperties;
-import dev.learning.fashionagent.integration.runninghub.NodeInput;
-import dev.learning.fashionagent.integration.runninghub.RunningHubTaskRunner;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
@@ -12,28 +10,54 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import dev.learning.fashionagent.config.GptImageProperties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-/** Runs the RunningHub audit-redraw workflow and archives its result locally. */
+/** Runs the GPT Images audit-redraw workflow and archives its result locally. */
 @Service
 public class AuditRedrawService {
-    private static final String PROMPT = "将上传的单人人物图片制作成高清写实的16宫格人物档案图。严格保持原人物的五官、脸型、发型发色、肤色、年龄感、身材比例、服装颜色材质结构和配饰完全一致，不换脸、不改变身份，不增加人物。使用纯白背景、均匀自然光、统一镜头高度和中性档案摄影构图，输出4x4单张图片；所有人脸仅做局部纯黑矩形隐私遮挡，除遮挡区域外保留真实细节。仅输出最终图片，不输出提示词、JSON、参数、Logo或水印。比例固定16:9。";
+    private static final Logger LOGGER = LoggerFactory.getLogger(AuditRedrawService.class);
+    private static final String PROMPT = ""
+            + "将上传的单人人物图片制作成一张横向16:9高清写实人物档案图，画布比例严格为16:9（2048x1152）。"
+            + "顶部保留约10%的独立白色标题栏，水平居中，只写人物名：{CHARACTER_NAME}，使用清晰黑色无衬线字体；标题不能被裁切，除标题外禁止任何文字、编号、Logo、水印或说明。"
+            + "主体区域必须严格排成6列×3行的18个等大档案格，白色背景，细黑线分隔，行列对齐，格子之间留白一致，不能把多格拼成一张大图。"
+            + "18格依次展示同一人物的正面全身、正面半身、左侧面、右侧面、三分之二侧面、背面全身、背面半身、回头侧脸、面部近景、眼部与眉形细节、鼻唇局部、耳饰局部、手部、上身服装、腰部服装、腿部与鞋、背部服装、服装材质与配饰细节；每格主体完整且不被相邻格裁切。"
+            + "所有格子必须是同一个人、同一套服装、同一发型发色、同一肤色年龄感和同一人体比例。{CLOTHING_RULE}不换脸、不美化成另一个人、不增加人物。"
+            + "使用统一的中性白底和均匀自然棚拍光，固定人像焦段和镜头高度，真实摄影质感，皮肤纹理、发丝、布料褶皱和配饰细节清晰，不要场景、道具、电影特效或夸张姿势。"
+            + "隐私遮挡必须按档案格分别执行：每一个含有可见正脸、侧脸或回头脸的格子，都必须放置一条纯黑、不透明、边缘平直清晰的横向长矩形遮挡条；黑条不得是短小方块，长度必须约为该格脸部可见宽度的45%至70%，高度约为脸高的10%至18%，至少覆盖脸部宽度的一半但不能跨出当前格。黑条要像参考档案图一样明显、完整、连续。"
+            + "黑条位置必须在不同格子中轮换分布，不能每格都遮双眼：正面半身或面部近景可遮眉眼区域，正面全身可遮鼻梁至上唇区域，左侧面可遮口鼻至左脸颊前缘，右侧面可遮口鼻至右脸颊前缘，三分之二侧脸可遮单眼至鼻梁，回头脸可遮下半脸或嘴角；相邻格不得使用完全相同的遮挡位置。禁止黑条跨出当前格、遮住整张脸、遮住整个人头、重复统一遮双眼、使用马赛克、模糊或渐变；不要遮挡头发、衣服或格子边框。"
+            + "未遮挡区域必须保留完整清晰的眼睛、眉形、鼻部轮廓、嘴部、下颌线、皮肤纹理和发型，使18格中不同角度的未遮挡部分可以互相拼合识别同一张完整脸；背面、手部、服装和鞋子等无脸格不添加黑块。"
+            + "只输出这一张最终档案图，不输出提示词或生成过程。";
+
+    /** Builds the shared multi-cell audit prompt used by standalone and script-replication redraws. */
+    public static String auditPromptFor(String characterName, String wardrobeInstruction) {
+        String name = characterName == null || characterName.isBlank() ? "人物" : characterName.trim();
+        String wardrobe = wardrobeInstruction == null || wardrobeInstruction.isBlank()
+                ? "严格锁定上传图的脸型、五官结构、发型、服装颜色材质纹理、鞋子和配饰，保持原服装完全一致。"
+                : "将本集服装设定落实到所有格子，并统一替换原图服装：" + wardrobeInstruction.trim()
+                        + "；允许且必须改变服装、发型配饰或状态中明确要求变化的部分，脸部身份、五官结构、人体比例和未要求变化的资产保持不变。";
+        return PROMPT.replace("{CHARACTER_NAME}", name).replace("{CLOTHING_RULE}", wardrobe);
+    }
 
     private final RunningHubProperties properties;
-    private final RunningHubTaskRunner taskRunner;
+    private final GptImageClient imageClient;
+    private final GptImageProperties imageProperties;
     private final ImageTransferService transfer;
     private final Executor executor;
     private final Map<UUID, Job> jobs = new ConcurrentHashMap<>();
 
-    public AuditRedrawService(RunningHubProperties properties, RunningHubTaskRunner taskRunner,
+    public AuditRedrawService(RunningHubProperties properties, GptImageClient imageClient, GptImageProperties imageProperties,
                               ImageTransferService transfer,
                               @Qualifier("storyVideoExecutor") Executor executor) {
         this.properties = properties;
-        this.taskRunner = taskRunner;
+        this.imageClient = imageClient;
+        this.imageProperties = imageProperties;
         this.transfer = transfer;
         this.executor = executor;
     }
@@ -51,6 +75,8 @@ public class AuditRedrawService {
             image.transferTo(input);
             Job job = new Job(id, image.getOriginalFilename(), Instant.now());
             jobs.put(id, job);
+            LOGGER.info("GPT 图生图任务已创建 jobId={} inputFile={} inputBytes={} model={}",
+                    id, image.getOriginalFilename(), image.getSize(), imageProperties.getModel());
             executor.execute(() -> run(job, input));
             return job.view();
         } catch (IOException exception) {
@@ -75,30 +101,25 @@ public class AuditRedrawService {
     private void run(Job job, Path input) {
         try {
             job.status = "PROCESSING";
-            job.message = "正在上传图片到 RunningHub";
-            String uploaded = transfer.uploadLocal(input);
-            job.message = "正在执行过审重绘工作流（16:9）";
-            List<NodeInput> nodes = List.of(
-                    new NodeInput("11", "image", uploaded, "image"),
-                    new NodeInput("13", "aspectRatio", "16:9", "aspectRatio"),
-                    new NodeInput("13", "channel", "Third-party", "channel"),
-                    new NodeInput("13", "resolution", "2k", "resolution"),
-                    new NodeInput("17", "text", PROMPT, "text"));
-            RunningHubTaskRunner.TaskOutput result = taskRunner.run(
-                    properties.getAuditRedrawAppId(), nodes, status -> job.message = status);
-            Path downloaded = transfer.downloadRemote(URI.create(result.url()), job.id, "audit-redraw");
+            job.message = "正在调用 GPT Image 2 图生图过审重绘";
+            String apiKey = imageProperties.requiredApiKey();
+            String characterName = characterName(job.inputFileName);
+            String prompt = auditPromptFor(characterName, null);
+            LOGGER.info("GPT 图生图任务开始调用 jobId={} model={} input={} inputBytes={} promptChars={}",
+                    job.id, imageProperties.getModel(), input, Files.size(input), prompt.length());
             Path archiveDir = properties.getAuditRedrawOutputDirectory().toAbsolutePath().normalize();
             Files.createDirectories(archiveDir);
-            Path archived = archiveDir.resolve("audit-redraw-" + Instant.now().toEpochMilli()
-                    + "-" + job.id + extension(downloaded.getFileName().toString()));
-            Files.copy(downloaded, archived, StandardCopyOption.REPLACE_EXISTING);
-            job.output = archived;
+            Path archived = archiveDir.resolve("audit-redraw-" + Instant.now().toEpochMilli() + "-" + job.id + ".png");
+            job.output = imageClient.edit(List.of(input), prompt, archived, apiKey, "2048x1152");
             job.status = "SUCCESS";
-            job.message = "过审重绘完成，已保存到 E:\\AI过审图";
-        } catch (Exception exception) {
+            job.message = "过审重绘完成，已保存到配置目录";
+            LOGGER.info("GPT 图生图任务完成 jobId={} output={} bytes={}", job.id, job.output, Files.size(job.output));
+        } catch (Exception | LinkageError exception) {
             job.status = "FAILED";
             job.message = "过审重绘失败";
             job.error = rootMessage(exception);
+            LOGGER.error("GPT 图生图任务失败 jobId={} model={} durationMs={} reason={}",
+                    job.id, imageProperties.getModel(), java.time.Duration.between(job.createdAt, Instant.now()).toMillis(), rootMessage(exception), exception);
         }
     }
 
@@ -108,6 +129,16 @@ public class AuditRedrawService {
         if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return ".jpg";
         if (lower.endsWith(".webp")) return ".webp";
         return ".png";
+    }
+
+    private static String characterName(String originalName) {
+        if (originalName == null || originalName.isBlank()) return "人物";
+        String fileName = originalName.trim();
+        int slash = Math.max(fileName.lastIndexOf('/'), fileName.lastIndexOf('\\'));
+        if (slash >= 0 && slash + 1 < fileName.length()) fileName = fileName.substring(slash + 1);
+        int dot = fileName.lastIndexOf('.');
+        if (dot > 0) fileName = fileName.substring(0, dot);
+        return fileName.isBlank() ? "人物" : fileName;
     }
 
     private static String rootMessage(Throwable error) {

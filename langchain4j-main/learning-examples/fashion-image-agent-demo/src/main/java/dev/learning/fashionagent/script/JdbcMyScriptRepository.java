@@ -58,6 +58,13 @@ class JdbcMyScriptRepository implements MyScriptRepository {
                 ON DUPLICATE KEY UPDATE role_level=VALUES(role_level), anchor_text=VALUES(anchor_text), image_sources_json=VALUES(image_sources_json), sort_order=VALUES(sort_order), updated_at=VALUES(updated_at)
                 """, a.id().toString(), a.projectId().toString(), a.characterName(), a.roleLevel(), a.anchor(), a.imageSourcesJson(), a.sortOrder(), Timestamp.from(a.createdAt()), Timestamp.from(a.updatedAt()));
     }
+    @Override public void saveEpisodeAsset(EpisodeAsset a) {
+        jdbc.update("""
+                INSERT INTO my_script_episode_asset (id, episode_id, asset_type, asset_name, prompt_text, image_sources_json, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE prompt_text=VALUES(prompt_text), image_sources_json=VALUES(image_sources_json), updated_at=VALUES(updated_at)
+                """, a.id().toString(), a.episodeId().toString(), a.assetType(), a.assetName(), a.prompt(), a.imageSourcesJson(), Timestamp.from(a.createdAt()), Timestamp.from(a.updatedAt()));
+    }
     @Override public void savePrompt(Prompt p) {
         jdbc.update("""
                 INSERT INTO my_script_episode_prompt (id, episode_id, version_number, source_type, source_label, idea_text, prompt_text, result_content, status, error_message, created_at, updated_at)
@@ -78,8 +85,10 @@ class JdbcMyScriptRepository implements MyScriptRepository {
     @Override public List<Episode> listEpisodes(UUID projectId) { return safely(() -> jdbc.query("SELECT * FROM my_script_episode WHERE project_id=? ORDER BY episode_number", (rs, n) -> episode(rs), projectId.toString()), List.of()); }
     @Override public List<Segment> listSegments(UUID episodeId) { return safely(() -> jdbc.query("SELECT * FROM script_replication_segment WHERE episode_id=? ORDER BY segment_number", (rs, n) -> segment(rs), episodeId.toString()), List.of()); }
     @Override public List<CharacterAsset> listCharacterAssets(UUID projectId) { return safely(() -> jdbc.query("SELECT * FROM my_script_character_asset WHERE project_id=? ORDER BY sort_order", (rs, n) -> character(rs), projectId.toString()), List.of()); }
+    @Override public List<EpisodeAsset> listEpisodeAssets(UUID episodeId) { return safely(() -> jdbc.query("SELECT * FROM my_script_episode_asset WHERE episode_id=? ORDER BY asset_type, asset_name", (rs, n) -> episodeAsset(rs), episodeId.toString()), List.of()); }
     private static Segment segment(java.sql.ResultSet rs) throws java.sql.SQLException { return new Segment(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("episode_id")), rs.getInt("segment_number"), rs.getString("content"), rs.getInt("duration_seconds"), rs.getString("status"), rs.getString("comfy_task_id") == null ? null : UUID.fromString(rs.getString("comfy_task_id")), rs.getString("error_message"), rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()); }
     private static CharacterAsset character(java.sql.ResultSet rs) throws java.sql.SQLException { return new CharacterAsset(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("project_id")), rs.getString("character_name"), rs.getString("role_level"), rs.getString("anchor_text"), rs.getString("image_sources_json"), rs.getInt("sort_order"), rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()); }
+    private static EpisodeAsset episodeAsset(java.sql.ResultSet rs) throws java.sql.SQLException { return new EpisodeAsset(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("episode_id")), rs.getString("asset_type"), rs.getString("asset_name"), rs.getString("prompt_text"), rs.getString("image_sources_json"), rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()); }
     private static Episode episode(java.sql.ResultSet rs) throws java.sql.SQLException { return new Episode(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("project_id")), rs.getInt("episode_number"), rs.getString("title"), rs.getString("content"), rs.getString("status"), rs.getString("message"), rs.getString("error_message"), rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()); }
     private static Prompt prompt(java.sql.ResultSet rs) throws java.sql.SQLException { return new Prompt(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("episode_id")), rs.getInt("version_number"), rs.getString("source_type"), rs.getString("source_label"), rs.getString("idea_text"), rs.getString("prompt_text"), rs.getString("result_content"), rs.getString("status"), rs.getString("error_message"), rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()); }
     private static <T> T safely(Supplier<T> action, T fallback) { try { return action.get(); } catch (RuntimeException ignored) { return fallback; } }

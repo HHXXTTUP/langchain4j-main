@@ -18,6 +18,7 @@ public final class MenuCatalog {
         menus.put("video-bgm", "视频合成");
         menus.put("direct-outfit", "人物换装");
         menus.put("audit-redraw", "过审重绘");
+        menus.put("gpt-images", "GPT 文生图");
         menus.put("video-script", "视频脚本");
         menus.put("short-drama-director", "短剧导演");
         menus.put("my-scripts", "我的剧本");

@@ -36,6 +36,7 @@
         <button class="nav-item" type="button" data-view="audit-redraw">
             <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/><path d="m8 12 2.5 2.5L16 9"/></svg><span>过审重绘</span>
         </button>
+        <button class="nav-item" type="button" data-view="gpt-images"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z"/><path d="m8 15 3-3 2 2 2-3 3 4"/><circle cx="9" cy="9" r="1"/></svg><span>GPT 文生图</span></button>
         <button class="nav-item" type="button" data-view="video-script">
             <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></svg><span>视频脚本</span>
         </button>
@@ -284,7 +285,7 @@
     <section class="direct-outfit-studio audit-redraw-studio view-panel" data-view-panel="audit-redraw" aria-labelledby="audit-redraw-title" hidden>
         <div class="knowledge-heading">
             <div><p class="eyebrow">AUDIT REDRAW</p><h2 id="audit-redraw-title">过审重绘</h2></div>
-            <span class="video-api-badge">RunningHub · 16:9</span>
+            <span class="video-api-badge">GPT Image 2 · 16:9</span>
         </div>
         <p class="intro-copy">上传一张图片，调用过审重绘工作流生成合规的16:9档案图。生成结果会自动保存到 E:\\AI过审图。</p>
         <form id="audit-redraw-form" class="direct-outfit-form">
@@ -293,6 +294,12 @@
             <div class="standalone-video-submit-row"><button id="audit-redraw-submit" type="submit">开始过审重绘</button><span id="audit-redraw-message" class="video-import-status"></span></div>
         </form>
         <div id="audit-redraw-result" class="direct-outfit-result" hidden></div>
+    </section>
+
+    <section class="direct-outfit-studio view-panel" data-view-panel="gpt-images" aria-labelledby="gpt-images-title" hidden>
+        <div class="knowledge-heading"><div><p class="eyebrow">GPT IMAGE 2</p><h2 id="gpt-images-title">GPT 文生图</h2></div><span class="video-api-badge">OpenAI Images API</span></div>
+        <form id="gpt-images-form" class="direct-outfit-form"><label>图片提示词<textarea id="gpt-images-prompt" rows="8" placeholder="例如：白底人物设定图，正面全身，写实影视风格，人物名称写在图片下方"></textarea></label><div class="standalone-video-submit-row"><button id="gpt-images-submit" type="submit">生成图片</button><span id="gpt-images-message" class="video-import-status">支持文生图，结果可查看和下载。</span></div></form>
+        <div id="gpt-images-result" class="direct-outfit-result" hidden></div>
     </section>
 
     <section class="direct-outfit-studio video-script-studio view-panel" data-view-panel="video-script" aria-labelledby="video-script-title" hidden>
@@ -326,7 +333,7 @@
     <section class="short-drama-director-studio view-panel" data-view-panel="short-drama-director" aria-labelledby="short-drama-director-title" hidden>
         <div class="knowledge-heading">
             <div><p class="eyebrow">SHORT DRAMA DIRECTOR</p><h2 id="short-drama-director-title">短剧导演</h2></div>
-            <span class="video-api-badge">Skill Rules · Qwen 3.8 Max</span>
+            <span class="video-api-badge">Skill Rules · Gemini 3.7 Flash</span>
         </div>
         <p class="intro-copy">先输入短剧剧情大纲，导演会先生成可持续使用的剧本设定：人物资产、世界规则、情节走向、空间与镜头基调。第一集将在“我的剧本”中确认设定后单独推演。</p>
         <div class="short-drama-layout">

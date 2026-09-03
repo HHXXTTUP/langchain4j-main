@@ -2,7 +2,10 @@ package dev.learning.fashionagent.config;
 
 import dev.learning.fashionagent.account.AccountContext;
 
+import java.nio.charset.StandardCharsets;
 import java.net.URI;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -10,7 +13,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class QwenProperties {
     private URI baseUrl = URI.create("https://dashscope.aliyuncs.com/compatible-mode/v1");
     private String apiKey;
-    private String model = "qwen3.8-max";
+    /** Legacy compatible-mode model setting; story-writing flows use Gemini. */
+    private String model = "qwen3.7-plus";
+    /** Legacy video script analysis keeps the qwen3.8-max multimodal model. */
+    private String videoScriptModel = "qwen3.8-max";
     // Thinking can keep a non-streaming proxy connection idle for several
     // minutes. Keep the compatible Chat Completions request lean by default.
     private boolean thinkingEnabled = false;
@@ -19,6 +25,7 @@ public class QwenProperties {
     // The desktop runtime reaches DashScope through the local VPN proxy.
     // Set QWEN_PROXY_ENABLED=false only when direct TLS is available.
     private boolean proxyEnabled = true;
+    private boolean videoScriptProxyEnabled = false;
     private String proxyHost = "127.0.0.1";
     private int proxyPort = 7897;
     // OpenAI-compatible video_url accepts Base64 only for files below 7 MB.
@@ -34,8 +41,22 @@ public class QwenProperties {
     public void setBaseUrl(URI baseUrl) { this.baseUrl = baseUrl; }
     public String getApiKey() { return AccountContext.secretValue("qwenKey", apiKey); }
     public void setApiKey(String apiKey) { this.apiKey = apiKey; }
+    public ApiKeyDiagnostic apiKeyDiagnostic() {
+        return apiKeyDiagnostic(getApiKey());
+    }
+    public ApiKeyDiagnostic apiKeyDiagnostic(String effectiveKey) {
+        AccountContext.Snapshot account = AccountContext.current();
+        String configured = account == null ? null : account.settings().get("qwenKey");
+        String source = configured != null && !configured.isBlank()
+                ? "account-settings:" + account.username()
+                : "environment:DASHSCOPE_API_KEY/QWEN_API_KEY";
+        String effective = effectiveKey == null ? null : effectiveKey.trim();
+        return new ApiKeyDiagnostic(source, fingerprint(effective), effective == null ? 0 : effective.length());
+    }
     public String getModel() { return model; }
     public void setModel(String model) { this.model = model; }
+    public String getVideoScriptModel() { return videoScriptModel; }
+    public void setVideoScriptModel(String videoScriptModel) { this.videoScriptModel = videoScriptModel; }
     public boolean isThinkingEnabled() { return thinkingEnabled; }
     public void setThinkingEnabled(boolean thinkingEnabled) { this.thinkingEnabled = thinkingEnabled; }
     public Duration getConnectTimeout() { return connectTimeout; }
@@ -44,6 +65,8 @@ public class QwenProperties {
     public void setReadTimeout(Duration readTimeout) { this.readTimeout = readTimeout; }
     public boolean isProxyEnabled() { return proxyEnabled; }
     public void setProxyEnabled(boolean proxyEnabled) { this.proxyEnabled = proxyEnabled; }
+    public boolean isVideoScriptProxyEnabled() { return videoScriptProxyEnabled; }
+    public void setVideoScriptProxyEnabled(boolean videoScriptProxyEnabled) { this.videoScriptProxyEnabled = videoScriptProxyEnabled; }
     public String getProxyHost() { return proxyHost; }
     public void setProxyHost(String proxyHost) { this.proxyHost = proxyHost; }
     public int getProxyPort() { return proxyPort; }
@@ -64,4 +87,18 @@ public class QwenProperties {
         }
         return effective.trim();
     }
+
+    private static String fingerprint(String value) {
+        if (value == null || value.isBlank()) return "none";
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.trim().getBytes(StandardCharsets.UTF_8));
+            StringBuilder result = new StringBuilder();
+            for (int index = 0; index < 6; index++) result.append(String.format("%02x", digest[index]));
+            return "sha256:" + result;
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("当前 Java 环境不支持 SHA-256", exception);
+        }
+    }
+
+    public record ApiKeyDiagnostic(String source, String fingerprint, int length) {}
 }

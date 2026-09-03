@@ -14,6 +14,7 @@ interface MyScriptRepository {
     void deleteReplicationMaterial(UUID episodeId);
     Optional<String> findReplicationMaterial(UUID episodeId);
     void saveCharacterAsset(CharacterAsset asset);
+    void saveEpisodeAsset(EpisodeAsset asset);
     void savePrompt(Prompt prompt);
     Optional<Prompt> findPrompt(UUID id);
     List<Prompt> listPrompts(UUID episodeId);
@@ -24,6 +25,7 @@ interface MyScriptRepository {
     List<Episode> listEpisodes(UUID projectId);
     List<Segment> listSegments(UUID episodeId);
     List<CharacterAsset> listCharacterAssets(UUID projectId);
+    List<EpisodeAsset> listEpisodeAssets(UUID episodeId);
 
     record Project(UUID id, UUID sourceJobId, String title, String settings, Instant createdAt, Instant updatedAt) {}
     record Episode(UUID id, UUID projectId, int number, String title, String content, String status,
@@ -32,6 +34,8 @@ interface MyScriptRepository {
                    UUID comfyTaskId, String error, Instant createdAt, Instant updatedAt) {}
     record CharacterAsset(UUID id, UUID projectId, String characterName, String roleLevel, String anchor,
                           String imageSourcesJson, int sortOrder, Instant createdAt, Instant updatedAt) {}
+    record EpisodeAsset(UUID id, UUID episodeId, String assetType, String assetName, String prompt,
+                        String imageSourcesJson, Instant createdAt, Instant updatedAt) {}
     record Prompt(UUID id, UUID episodeId, int version, String sourceType, String sourceLabel, String idea,
                   String promptText, String resultContent, String status, String error,
                   Instant createdAt, Instant updatedAt) {}

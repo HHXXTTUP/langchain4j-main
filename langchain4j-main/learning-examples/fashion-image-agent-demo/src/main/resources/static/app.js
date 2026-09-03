@@ -130,6 +130,11 @@ const auditRedrawPreview = document.querySelector("#audit-redraw-preview");
 const auditRedrawSubmit = document.querySelector("#audit-redraw-submit");
 const auditRedrawMessage = document.querySelector("#audit-redraw-message");
 const auditRedrawResult = document.querySelector("#audit-redraw-result");
+const gptImagesForm = document.querySelector("#gpt-images-form");
+const gptImagesPrompt = document.querySelector("#gpt-images-prompt");
+const gptImagesSubmit = document.querySelector("#gpt-images-submit");
+const gptImagesMessage = document.querySelector("#gpt-images-message");
+const gptImagesResult = document.querySelector("#gpt-images-result");
 const videoScriptForm = document.querySelector("#video-script-form");
 const videoScriptAddress = document.querySelector("#video-script-address");
 const videoScriptSubmit = document.querySelector("#video-script-submit");
@@ -237,6 +242,7 @@ let selectedComfyUiFiles = [];
 let myScripts = [];
 let selectedMyScriptId = null;
 let selectedMyScriptEpisodeId = null;
+let selectedMyScriptSection = "settings";
 const expandedMyScriptProjects = new Set();
 const loadingReplicationEpisodes = new Set();
 
@@ -249,20 +255,6 @@ loadCatalogStatus();
 loadExperiences();
 loadVideoCatalog();
 loadComfyUiVideoHistory();
-setInterval(loadRuntimeLogs, 3000);
-setInterval(() => {
-    if (currentView === "tasks") loadHistory();
-}, 30000);
-setInterval(() => {
-    if (selectedTaskId && currentView === "tasks") loadStepLogs(selectedTaskId);
-}, 3000);
-setInterval(() => {
-}, 10000);
-  setInterval(() => {
-     if (currentView === "video-script") loadVideoScripts();
-     if (currentView === "short-drama-director") loadShortDramaTasks();
-     if (currentView === "my-scripts") loadMyScripts();
-  }, 10000);
 
 navItems.forEach((item) => item.addEventListener("click", () => authorizeAndActivateView(item.dataset.view, true)));
 window.addEventListener("hashchange", () => authorizeAndActivateView(normalizeView(location.hash.slice(1))));
@@ -312,6 +304,7 @@ if (directOutfitPerson) directOutfitPerson.addEventListener("change", () => prev
 if (directOutfitClothing) directOutfitClothing.addEventListener("change", () => previewDirectOutfitFile(directOutfitClothing, directOutfitClothingPreview));
 if (auditRedrawForm) auditRedrawForm.addEventListener("submit", submitAuditRedraw);
 if (auditRedrawImage) auditRedrawImage.addEventListener("change", () => previewDirectOutfitFile(auditRedrawImage, auditRedrawPreview));
+if (gptImagesForm) gptImagesForm.addEventListener("submit", submitGptImages);
 if (videoScriptForm) videoScriptForm.addEventListener("submit", submitVideoScript);
 if (videoScriptDownload) videoScriptDownload.addEventListener("click", () => submitVideoScriptTask(false));
 videoScriptTabs.forEach((tab) => tab.addEventListener("click", () => activateVideoScriptTab(tab.dataset.videoScriptTab)));
@@ -2604,13 +2597,17 @@ function renderMyScripts() {
         const button = document.createElement("button"); button.type = "button"; button.className = `my-script-tree-parent ${project.id === selectedMyScriptId ? "is-selected" : ""}`;
         const caret = document.createElement("span"); caret.className = "my-script-tree-caret"; caret.textContent = expandedMyScriptProjects.has(project.id) ? "▾" : "▸";
         const copy = document.createElement("span"); const title = document.createElement("strong"); title.textContent = project.title || "未命名剧本"; const meta = document.createElement("small"); meta.textContent = `${(project.episodes || []).length} 集 · ${new Date(project.updatedAt).toLocaleString()}`; copy.append(title, meta); button.append(caret, copy);
-        button.addEventListener("click", () => { selectedMyScriptId = project.id; expandedMyScriptProjects.has(project.id) ? expandedMyScriptProjects.delete(project.id) : expandedMyScriptProjects.add(project.id); const first = project.episodes?.[0]; if (first) selectedMyScriptEpisodeId = first.id; renderMyScripts(); }); group.append(button);
+        button.addEventListener("click", () => { selectedMyScriptId = project.id; const wasExpanded = expandedMyScriptProjects.has(project.id); if (wasExpanded) expandedMyScriptProjects.delete(project.id); else expandedMyScriptProjects.add(project.id); if (!wasExpanded) selectedMyScriptSection = "settings"; renderMyScripts(); }); group.append(button);
         if (expandedMyScriptProjects.has(project.id)) {
             const children = document.createElement("div"); children.className = "my-script-tree-children";
+            const settingsChild = document.createElement("button"); settingsChild.type = "button"; settingsChild.className = `my-script-tree-episode my-script-tree-settings ${selectedMyScriptSection === "settings" && project.id === selectedMyScriptId ? "is-selected" : ""}`;
+            settingsChild.textContent = "剧本设定";
+            settingsChild.addEventListener("click", event => { event.stopPropagation(); selectedMyScriptId = project.id; selectedMyScriptSection = "settings"; selectedMyScriptEpisodeId = null; expandedMyScriptProjects.add(project.id); renderMyScripts(); });
+            children.append(settingsChild);
             (project.episodes || []).forEach(episode => {
-                const child = document.createElement("button"); child.type = "button"; child.className = `my-script-tree-episode ${episode.id === selectedMyScriptEpisodeId ? "is-selected" : ""}`;
+                const child = document.createElement("button"); child.type = "button"; child.className = `my-script-tree-episode ${selectedMyScriptSection === episode.id || episode.id === selectedMyScriptEpisodeId ? "is-selected" : ""}`;
                 child.textContent = `${episode.title || `第${episode.number}集`} · ${shortDramaStatusLabel(episode.status)}`;
-                child.addEventListener("click", event => { event.stopPropagation(); selectedMyScriptId = project.id; selectedMyScriptEpisodeId = episode.id; expandedMyScriptProjects.add(project.id); renderMyScripts(); }); children.append(child);
+                child.addEventListener("click", event => { event.stopPropagation(); selectedMyScriptId = project.id; selectedMyScriptEpisodeId = episode.id; selectedMyScriptSection = episode.id; expandedMyScriptProjects.add(project.id); renderMyScripts(); }); children.append(child);
             }); group.append(children);
         }
         myScriptList.append(group);
@@ -2622,17 +2619,62 @@ function renderMyScripts() {
 function renderMyScriptDetail(project) {
     myScriptDetail.replaceChildren();
     const title = document.createElement("h3"); title.textContent = project.title;
-    const label = document.createElement("h4"); label.textContent = "剧本设定";
-    const settings = document.createElement("div"); settings.className = "my-script-settings"; settings.textContent = project.settings || "暂无剧本设定";
-    const actions = document.createElement("div"); actions.className = "my-script-actions";
     const episodes = project.episodes || [];
-    if (!selectedMyScriptEpisodeId && episodes.length) selectedMyScriptEpisodeId = episodes[0].id;
-    const selected = episodes.find(episode => episode.id === selectedMyScriptEpisodeId) || episodes[0];
-    const advance = document.createElement("button"); advance.type = "button";
-    advance.textContent = episodes.length ? "再来一集" : "开始剧情推演";
-    advance.addEventListener("click", () => continueMyScript(project.id, advance, episodes.length === 0)); actions.append(advance);
-    myScriptDetail.append(title, label, settings, actions);
+    if (!selectedMyScriptSection || (selectedMyScriptSection !== "settings" && !episodes.some(item => item.id === selectedMyScriptSection))) selectedMyScriptSection = "settings";
+    if (selectedMyScriptSection === "settings") {
+        const label = document.createElement("h4"); label.textContent = "剧本设定";
+        const settings = document.createElement("div"); settings.className = "my-script-settings"; settings.textContent = project.settings || "暂无剧本设定";
+        const actions = document.createElement("div"); actions.className = "my-script-actions";
+        const advance = document.createElement("button"); advance.type = "button"; advance.textContent = episodes.length ? "再来一集" : "开始剧情推演";
+        advance.addEventListener("click", () => continueMyScript(project.id, advance, episodes.length === 0)); actions.append(advance);
+        const characterTools = document.createElement("section"); characterTools.className = "script-character-tools";
+        const characterHeader = document.createElement("div"); characterHeader.className = "script-character-header";
+        const characterHeading = document.createElement("h4"); characterHeading.textContent = "剧本人物基础图";
+        const generateAll = document.createElement("button"); generateAll.type = "button"; generateAll.textContent = "生成基础人物图";
+        const characterHint = document.createElement("p"); characterHint.className = "knowledge-empty"; characterHint.textContent = "根据完整剧本设定和导演规则自动提取人物，生成纯白背景基础图，后续剧集复刻会自动复用。";
+        const characterGallery = document.createElement("div"); characterGallery.className = "script-character-gallery";
+        const renderCharacterAssets = assets => {
+            characterGallery.replaceChildren();
+            (assets || []).forEach(asset => {
+                const urls = parseStoredImages(asset.imageSourcesJson);
+                (urls.length ? urls : [""]).forEach(url => {
+                const wrap = document.createElement("figure"); wrap.className = "script-character-asset-card";
+                const header = document.createElement("div"); header.className = "script-character-asset-header";
+                const caption = document.createElement("strong"); caption.textContent = asset.characterName || "未命名人物";
+                const retry = document.createElement("button"); retry.type = "button"; retry.className = "button-secondary"; retry.textContent = "重新生成";
+                const imageStatus = document.createElement("small"); imageStatus.className = "script-character-asset-status"; imageStatus.textContent = url ? "已保存" : "尚未生成";
+                const img = document.createElement("img"); img.className = "script-character-generated-image"; img.alt = asset.characterName || "人物基础图";
+                const download = document.createElement("a"); download.className = "script-character-download"; download.download = `${asset.characterName || "人物"}-基础人物图.png`; download.textContent = "查看 / 下载";
+                if (url) { img.src = url; download.href = url; } else { img.hidden = true; download.hidden = true; }
+                retry.addEventListener("click", async () => {
+                    retry.disabled = true; imageStatus.textContent = "生成中…";
+                    try {
+                        const response = await fetch(`/api/my-scripts/${project.id}/characters/generate`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({characterName: asset.characterName, prompt: ""})});
+                        const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "人物图生成失败");
+                        const urls = parseStoredImages(payload.imageSourcesJson); const next = urls[urls.length - 1];
+                        if (!next) throw new Error("接口未返回人物图片");
+                        img.hidden = false; download.hidden = false; img.src = next; download.href = next; imageStatus.textContent = "已重新生成并保存";
+                    } catch (error) { imageStatus.textContent = error.message || "重新生成失败"; }
+                    finally { retry.disabled = false; }
+                });
+                header.append(caption, retry, imageStatus); wrap.append(header, img, download); characterGallery.append(wrap);
+            });
+            });
+        };
+        generateAll.addEventListener("click", async () => {
+            generateAll.disabled = true; characterHint.textContent = "正在调用 Gemini 规划人物，并生成基础人物图…";
+            try { const response = await fetch(`/api/my-scripts/${project.id}/characters/generate-all`, {method: "POST"}); const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "基础人物图生成失败"); characterHint.textContent = `已生成 ${payload.length || 0} 个基础人物资产。`; renderCharacterAssets(payload); }
+            catch (error) { characterHint.textContent = error.message || "基础人物图生成失败"; } finally { generateAll.disabled = false; }
+        });
+        characterHeader.append(characterHeading, generateAll); characterTools.append(characterHeader, characterHint, characterGallery);
+        myScriptDetail.append(title, label, settings, actions, characterTools);
+        fetch(`/api/my-scripts/${project.id}/characters`, {cache: "no-store"}).then(response => response.ok ? response.json() : []).then(renderCharacterAssets).catch(() => {});
+        return;
+    }
+    selectedMyScriptEpisodeId = selectedMyScriptSection;
+    const selected = episodes.find(episode => episode.id === selectedMyScriptSection);
     if (!selected) return;
+    myScriptDetail.append(title);
     const episodeHeading = document.createElement("div"); episodeHeading.className = "my-script-selected-episode-heading";
     const episodeLabel = document.createElement("h4"); episodeLabel.textContent = `${selected.title || `第${selected.number}集`} · ${shortDramaStatusLabel(selected.status)}`; episodeHeading.append(episodeLabel); myScriptDetail.append(episodeHeading);
     const message = document.createElement("p"); message.className = "short-drama-result-message"; message.textContent = selected.error || selected.message || "";
@@ -2695,7 +2737,7 @@ async function rewriteMyScriptEpisode(episodeId, idea, button, panel, promptId =
 
 async function continueMyScript(projectId, button, first = false) {
     button.disabled = true; const originalLabel = button.textContent; button.textContent = "正在提交…";
-    try { const response = await fetch(`/api/my-scripts/${projectId}/episodes${first ? "/first" : ""}`, {method: "POST"}); const episode = await readJson(response); if (!response.ok) throw new Error(episode.message || "剧情推演提交失败"); selectedMyScriptEpisodeId = episode.id; await loadMyScripts(); pollMyScriptEpisode(projectId, episode.id); }
+    try { const response = await fetch(`/api/my-scripts/${projectId}/episodes${first ? "/first" : ""}`, {method: "POST"}); const episode = await readJson(response); if (!response.ok) throw new Error(episode.message || "剧情推演提交失败"); selectedMyScriptEpisodeId = episode.id; selectedMyScriptSection = episode.id; await loadMyScripts(); pollMyScriptEpisode(projectId, episode.id); }
     catch (error) { window.alert(error.message || "续写提交失败"); } finally { button.disabled = false; button.textContent = originalLabel; }
 }
 
@@ -2707,9 +2749,12 @@ async function pollMyScriptEpisode(projectId, episodeId) {
             const project = await readJson(response);
             if (!response.ok) return;
             const current = (project.episodes || []).find(item => item.id === episodeId);
+            const previous = myScripts.find(item => item.id === project.id);
+            const changed = JSON.stringify(previous) !== JSON.stringify(project);
             myScripts = myScripts.map(item => item.id === project.id ? project : item);
-            if (selectedMyScriptId === project.id) renderMyScripts();
-            if (current && ["SUCCESS", "FAILED"].includes(current.status)) { myScripts = myScripts.map(item => item.id === project.id ? project : item); renderMyScripts(); return; }
+            // Polling remains task-scoped, but avoid rebuilding the whole page when nothing changed.
+            if (changed && selectedMyScriptId === project.id) renderMyScripts();
+            if (current && ["SUCCESS", "FAILED"].includes(current.status)) { if (!changed && selectedMyScriptId === project.id) renderMyScripts(); return; }
         } catch (_) { return; }
     }
 }
@@ -2732,19 +2777,33 @@ async function loadScriptReplication(episodeId) {
         const charactersResponse = episode ? await fetch(`/api/my-scripts/${episode.projectId}/characters`, {cache: "no-store"}) : null;
         const characters = charactersResponse ? await readJson(charactersResponse) : [];
         if (charactersResponse && !charactersResponse.ok) throw new Error(characters.message || "读取角色资产失败");
-        scriptReplicationEmpty.hidden = true; scriptReplicationContent.hidden = false; renderScriptReplication(Array.isArray(payload.segments) ? payload.segments : [], Array.isArray(characters) ? characters : [], episode, payload.episodeMaterial || null);
+        const episodeAssetsResponse = episode ? await fetch(`/api/my-scripts/episodes/${episodeId}/assets`, {cache: "no-store"}) : null;
+        const episodeAssets = episodeAssetsResponse ? await readJson(episodeAssetsResponse) : [];
+        if (episodeAssetsResponse && !episodeAssetsResponse.ok) throw new Error(episodeAssets.message || "读取剧集资产失败");
+        scriptReplicationEmpty.hidden = true; scriptReplicationContent.hidden = false; renderScriptReplication(Array.isArray(payload.segments) ? payload.segments : [], Array.isArray(characters) ? characters : [], episode, payload.episodeMaterial || null, Array.isArray(episodeAssets) ? episodeAssets : []);
     } catch (error) { scriptReplicationEmpty.hidden = false; scriptReplicationEmpty.textContent = error.message || "加载剧本复刻失败"; scriptReplicationContent.hidden = true; }
     finally { loadingReplicationEpisodes.delete(episodeId); }
 }
 
-function characterNamesForReplication(project, episode, assets) {
-    const text = `${project?.settings || ""}\n${episode?.content || ""}`;
-    const matches = [...text.matchAll(/(?:女子|男子|女主|男主|角色)[\d一二三四五六七八九十]*/g)].map(item => item[0]);
-    const names = [...new Set([...assets.map(item => item.characterName), ...matches])];
-    return names.length ? names.slice(0, 12) : ["主角1"];
+function isPlaceholderCharacterName(value) { return /^(男主|女主|角色|人物|女子|男子)[一二三四五六七八九十\d]*$/i.test(String(value || "").trim()); }
+function parseEpisodeCharacterSpecs(materialText) {
+    const specs = new Map();
+    String(materialText || "").split(/\r?\n|；|;/).map(value => value.trim()).filter(Boolean).forEach(value => {
+        const match = value.match(/^([^：:，,（(]{1,20})[：:]/);
+        if (!match) return;
+        const name = match[1].trim();
+        if (!name || isPlaceholderCharacterName(name) || /^(本集|人物与服装装束|角色身份)$/.test(name)) return;
+        specs.set(name, value.substring(match[0].length).trim());
+    });
+    return specs;
+}
+function characterNamesForReplication(project, episode, assets, episodeMaterial = null) {
+    const specs = parseEpisodeCharacterSpecs(episodeMaterial?.charactersWardrobe);
+    const names = [...new Set([...(assets || []).map(item => item.characterName).filter(name => !isPlaceholderCharacterName(name)), ...specs.keys()])];
+    return names.slice(0, 12);
 }
 
-function renderScriptReplication(segments, assets, episode, episodeMaterial = null) {
+function renderScriptReplication(segments, assets, episode, episodeMaterial = null, episodeAssets = []) {
     scriptReplicationContent.replaceChildren();
     const project = myScripts.find(item => item.id === episode?.projectId);
     const heading = document.createElement("div"); heading.className = "replication-flow-heading";
@@ -2756,13 +2815,25 @@ function renderScriptReplication(segments, assets, episode, episodeMaterial = nu
     const materialGrid = document.createElement("div"); materialGrid.className = "replication-material-grid";
     const materialItems = [["人物与服装装束", episodeMaterial?.charactersWardrobe], ["环境与场面氛围", episodeMaterial?.environment], ["本集主要剧情", episodeMaterial?.plot], ["与上一集连续性", episodeMaterial?.continuity]];
     materialItems.forEach(([label, value]) => { const item = document.createElement("article"); const name = document.createElement("strong"); name.textContent = label; const text = document.createElement("p"); text.textContent = value || "暂无资料"; item.append(name, text); materialGrid.append(item); });
-    materialPanel.append(materialGrid); scriptReplicationContent.append(materialPanel);
+    materialPanel.append(materialGrid);
+    const environmentAction = document.createElement("div"); environmentAction.className = "replication-card-actions";
+    const environmentButton = document.createElement("button"); environmentButton.type = "button"; environmentButton.textContent = "生成本集环境图";
+    const savedEnvironment = (episodeAssets || []).find(asset => asset.assetType === "ENVIRONMENT");
+    const savedEnvironmentImage = parseStoredImages(savedEnvironment?.imageSourcesJson)[0];
+    const showEnvironment = image => { if (!image) return; const imageElement = document.createElement("img"); imageElement.className = "replication-environment-image"; imageElement.src = image; imageElement.alt = "本集环境图"; const link = document.createElement("a"); link.href = image; link.download = "本集环境图.png"; link.textContent = "查看 / 下载"; environmentAction.append(imageElement, link); };
+    if (savedEnvironmentImage) showEnvironment(savedEnvironmentImage);
+    environmentButton.addEventListener("click", async () => { environmentButton.disabled = true; environmentButton.textContent = "生成中…"; try { const response = await fetch(`/api/my-scripts/episodes/${episode.id}/assets/environment`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({prompt: episodeMaterial?.environment || "本集环境"})}); const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "生成环境图失败"); environmentAction.querySelectorAll("img, a").forEach(node => node.remove()); showEnvironment(payload.image); } catch (error) { window.alert(error.message || "生成环境图失败"); } finally { environmentButton.disabled = false; environmentButton.textContent = "生成本集环境图"; } });
+    environmentAction.prepend(environmentButton); materialPanel.append(environmentAction); scriptReplicationContent.append(materialPanel);
 
     const assetPanel = document.createElement("section"); assetPanel.className = "replication-assets";
-    const assetTitle = document.createElement("h4"); assetTitle.textContent = "步骤 01 · 人物资产锁定"; assetPanel.append(assetTitle);
-    const assetHint = document.createElement("p"); assetHint.textContent = "同一人物只需上传一次；后续所有出现该人物的段落会自动复用该参考图，并按上传顺序提交。"; assetPanel.append(assetHint);
+    const assetTitle = document.createElement("h4"); assetTitle.textContent = "步骤 01 · 剧集资产生成"; assetPanel.append(assetTitle);
+    const assetHint = document.createElement("p"); assetHint.textContent = "先生成或上传人物基础图，再按本集服装设定生成专属人物图；段落视频会自动复用已保存资产。"; assetPanel.append(assetHint);
     const assetGrid = document.createElement("div"); assetGrid.className = "replication-asset-grid";
-    const names = characterNamesForReplication(project, episode, assets);
+    const characterSpecs = parseEpisodeCharacterSpecs(episodeMaterial?.charactersWardrobe);
+    const names = characterNamesForReplication(project, episode, assets, episodeMaterial);
+    if (!names.length) {
+        const empty = document.createElement("p"); empty.className = "knowledge-empty"; empty.textContent = "本集资料暂未识别到真实人物，请先在“我的剧本”生成基础人物图，或重新整理本集复刻资料。"; assetPanel.append(empty);
+    }
     const fields = [];
     names.forEach((name, index) => {
         const existing = assets.find(item => item.characterName === name); const item = document.createElement("article"); item.className = "replication-asset-item";
@@ -2770,8 +2841,13 @@ function renderScriptReplication(segments, assets, episode, episodeMaterial = nu
         const input = document.createElement("input"); input.type = "file"; input.accept = "image/*"; input.multiple = true; input.dataset.character = name;
         const preview = document.createElement("div"); preview.className = "replication-image-preview";
         const oldImages = parseStoredImages(existing?.imageSourcesJson); oldImages.forEach(url => { const img = document.createElement("img"); img.src = url; preview.append(img); });
+        const episodeImage = parseStoredImages((episodeAssets || []).find(asset => asset.assetType === "CHARACTER" && asset.assetName === name)?.imageSourcesJson)[0];
+        if (episodeImage) { const img = document.createElement("img"); img.src = episodeImage; img.alt = `${name} 本集人物图`; preview.prepend(img); }
+        const wardrobe = document.createElement("textarea"); wardrobe.rows = 4; wardrobe.placeholder = "只填写本角色本集服装、发型、配饰与状态设定"; wardrobe.value = characterSpecs.get(name) || "请填写本角色本集的服装、发型、配饰、妆容和状态";
+        const generateAsset = document.createElement("button"); generateAsset.type = "button"; generateAsset.textContent = "生成本集人物图";
+        generateAsset.addEventListener("click", async () => { generateAsset.disabled = true; generateAsset.textContent = "生成中…"; try { const response = await fetch(`/api/my-scripts/episodes/${episode.id}/assets/character`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({characterName: name, prompt: wardrobe.value})}); const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "生成剧集人物图失败"); const img = document.createElement("img"); img.src = payload.image; img.alt = `${name} 本集人物图`; const link = document.createElement("a"); link.href = payload.image; link.download = `${name}-本集人物图.png`; link.textContent = "查看 / 下载"; preview.prepend(link, img); } catch (error) { window.alert(error.message || "生成剧集人物图失败"); } finally { generateAsset.disabled = false; generateAsset.textContent = "生成本集人物图"; } });
         input.addEventListener("change", async () => { const images = await Promise.all([...input.files].map(readFileAsDataUrl)); preview.replaceChildren(); images.forEach(url => { const img = document.createElement("img"); img.src = url; preview.append(img); }); });
-        item.append(input, preview); assetGrid.append(item); fields.push({name, input, existing, index});
+        item.append(wardrobe, generateAsset, input, preview); assetGrid.append(item); fields.push({name, input, existing, index});
     });
     assetPanel.append(assetGrid);
     const saveAssets = document.createElement("button"); saveAssets.type = "button"; saveAssets.textContent = "保存人物参考图";
@@ -2787,8 +2863,8 @@ function renderScriptReplication(segments, assets, episode, episodeMaterial = nu
         try {
             const response = await fetch(`/api/my-scripts/episodes/${episode.id}/replication-segments/replan`, {method: "POST"});
             const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "重新整理失败");
-            const project = myScripts.find(item => item.id === episode.projectId); const saved = await fetch(`/api/my-scripts/${episode.projectId}/characters`, {cache: "no-store"});
-            renderScriptReplication(payload.segments || [], saved.ok ? await readJson(saved) : [], project?.episodes?.find(item => item.id === episode.id) || episode, payload.episodeMaterial || null);
+            const project = myScripts.find(item => item.id === episode.projectId); const saved = await fetch(`/api/my-scripts/${episode.projectId}/characters`, {cache: "no-store"}); const savedEpisodeAssets = await fetch(`/api/my-scripts/episodes/${episode.id}/assets`, {cache: "no-store"});
+            renderScriptReplication(payload.segments || [], saved.ok ? await readJson(saved) : [], project?.episodes?.find(item => item.id === episode.id) || episode, payload.episodeMaterial || null, savedEpisodeAssets.ok ? await readJson(savedEpisodeAssets) : []);
         } catch (error) { window.alert(error.message || "重新整理失败"); }
         finally { replan.disabled = false; replan.textContent = "重新整理本集段落"; }
     });
@@ -2833,7 +2909,7 @@ async function pollScriptReplicationVideo(taskId, stateElement, button, output) 
 }
 
 function normalizeView(view) {
-    return ["workbench", "tasks", "video-canvas", "dialogue-extraction", "video-bgm", "direct-outfit", "audit-redraw", "video-script", "short-drama-director", "my-scripts", "script-replication", "knowledge", "logs", "account-settings"].includes(view) ? view : "workbench";
+    return ["workbench", "tasks", "video-canvas", "dialogue-extraction", "video-bgm", "direct-outfit", "audit-redraw", "gpt-images", "video-script", "short-drama-director", "my-scripts", "script-replication", "knowledge", "logs", "account-settings"].includes(view) ? view : "workbench";
 }
 
 async function initializeAccountSession() {
@@ -3787,7 +3863,9 @@ async function loadVideoBgmEndingFiles() {
 
 const accountSettingFields = [
     ["runninghubKey", "RunningHub API Key", "password"], ["snapanyKey", "SnapAny API Key", "password"],
-    ["qwenKey", "千问 API Key", "password"], ["zhipuKey", "智谱 GLM API Key", "password"],
+    ["qwenKey", "千问 API Key", "password"], ["geminiKey", "Gemini API Key", "password"],
+    ["gptImagesKey", "GPT Images API Key", "password"],
+    ["zhipuKey", "智谱 GLM API Key", "password"],
     ["comfyuiToken", "ComfyUI Token", "password"], ["clothingDirectory", "服装资料库目录", "text"],
     ["videoDirectory", "参考视频目录", "text"], ["generatedDirectory", "任务生成目录", "text"],
     ["videoExportDirectory", "视频打包导出目录", "text"], ["auditOutputDirectory", "过审图片目录", "text"],
@@ -4032,6 +4110,33 @@ async function submitAuditRedraw(event) {
     } catch (error) {
         if (auditRedrawMessage) auditRedrawMessage.textContent = error.message || "过审重绘失败";
     } finally { if (auditRedrawSubmit) auditRedrawSubmit.disabled = false; }
+}
+
+async function submitGptImages(event) {
+    event.preventDefault();
+    const prompt = gptImagesPrompt?.value?.trim();
+    if (!prompt) { if (gptImagesMessage) gptImagesMessage.textContent = "请输入图片提示词"; return; }
+    gptImagesSubmit.disabled = true; gptImagesMessage.textContent = "正在提交 GPT 文生图任务…";
+    try {
+        const response = await fetch("/api/gpt-images", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({prompt})});
+        const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "文生图提交失败");
+        renderGptImages(payload); pollGptImages(payload.id);
+    } catch (error) { gptImagesMessage.textContent = error.message || "文生图失败"; }
+    finally { gptImagesSubmit.disabled = false; }
+}
+async function pollGptImages(id) {
+    for (let i = 0; i < 180; i++) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        try { const response = await fetch(`/api/gpt-images/${id}`, {cache: "no-store"}); const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "读取图片状态失败"); renderGptImages(payload); gptImagesMessage.textContent = payload.message || payload.status; if (["SUCCESS", "FAILED"].includes(payload.status)) return; }
+        catch (error) { gptImagesMessage.textContent = error.message || "读取图片状态失败"; return; }
+    }
+}
+function renderGptImages(task) {
+    if (!gptImagesResult) return; gptImagesResult.hidden = false; gptImagesResult.replaceChildren();
+    const title = document.createElement("h3"); title.textContent = "GPT Image 2 文生图";
+    const status = document.createElement("p"); status.textContent = task.message || task.status; gptImagesResult.append(title, status);
+    if (task.error) { const error = document.createElement("p"); error.className = "form-error"; error.textContent = task.error; gptImagesResult.append(error); }
+    if (task.outputUrl) { const image = document.createElement("img"); image.src = task.outputUrl; image.alt = "GPT 文生图结果"; image.className = "direct-outfit-output"; const link = document.createElement("a"); link.href = task.outputUrl; link.target = "_blank"; link.download = "gpt-image.png"; link.textContent = "查看 / 下载图片"; gptImagesResult.append(image, link); }
 }
 
 async function pollAuditRedraw(id) {

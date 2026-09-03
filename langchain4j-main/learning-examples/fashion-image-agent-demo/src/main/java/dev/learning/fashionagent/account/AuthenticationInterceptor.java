@@ -74,6 +74,7 @@ public class AuthenticationInterceptor implements HandlerInterceptor {
         if (matches(path, "/api/video-bgm-compositions")) return Set.of("video-bgm", "video-canvas");
         if (matches(path, "/api/direct-outfit-replacements")) return Set.of("direct-outfit");
         if (matches(path, "/api/audit-redraw")) return Set.of("audit-redraw", "video-canvas");
+        if (matches(path, "/api/gpt-images")) return Set.of("gpt-images");
         if (matches(path, "/api/system/logs")) return Set.of("logs");
         if (matches(path, "/api/comfyui-video-generations", "/api/comfyui-video-plans")) return Set.of("video-canvas");
         if (matches(path, "/api/story-video-replications")) return Set.of("dialogue-extraction");

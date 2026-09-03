@@ -26,7 +26,7 @@ public class AccountService implements ApplicationRunner {
     private static final String DEFAULT_ADMIN = "admin";
     private static final String DEFAULT_PASSWORD = "qq1184920089";
     private static final List<String> SECRET_FIELDS = List.of(
-            "runninghubKey", "snapanyKey", "qwenKey", "zhipuKey", "comfyuiToken");
+            "runninghubKey", "snapanyKey", "qwenKey", "geminiKey", "gptImagesKey", "zhipuKey", "comfyuiToken");
     private static final List<String> DIRECTORY_FIELDS = List.of(
             "clothingDirectory", "videoDirectory", "generatedDirectory", "videoExportDirectory",
             "auditOutputDirectory", "storyOutputDirectory", "bgmDirectory", "qwenOutputDirectory");
@@ -43,6 +43,9 @@ public class AccountService implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
+        // Keep existing H2 installations compatible after adding account-level Gemini keys.
+        try { jdbc.execute("ALTER TABLE app_account_setting ADD COLUMN IF NOT EXISTS gemini_key CLOB"); jdbc.execute("ALTER TABLE app_account_setting ADD COLUMN IF NOT EXISTS gpt_images_key CLOB"); }
+        catch (Exception ignored) { /* schema-h2.sql handles fresh databases; some drivers reject IF NOT EXISTS */ }
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM app_account", Integer.class);
         if (count != null && count == 0) {
             if (importBootstrap()) return;
@@ -197,12 +200,13 @@ public class AccountService implements ApplicationRunner {
             if (values.containsKey(field)) current.put(field, normalizeDirectory(values.get(field)));
         }
         jdbc.update("""
-                UPDATE app_account_setting SET runninghub_key=?, snapany_key=?, qwen_key=?, zhipu_key=?,
+                UPDATE app_account_setting SET runninghub_key=?, snapany_key=?, qwen_key=?, gemini_key=?, gpt_images_key=?, zhipu_key=?,
                     comfyui_token=?, clothing_directory=?, video_directory=?, generated_directory=?,
                     video_export_directory=?, audit_output_directory=?, story_output_directory=?, bgm_directory=?,
                     qwen_output_directory=?, updated_at=? WHERE account_id=?
                 """, cipher.encrypt(current.get("runninghubKey")), cipher.encrypt(current.get("snapanyKey")),
-                cipher.encrypt(current.get("qwenKey")), cipher.encrypt(current.get("zhipuKey")),
+                cipher.encrypt(current.get("qwenKey")), cipher.encrypt(current.get("geminiKey")), cipher.encrypt(current.get("gptImagesKey")),
+                cipher.encrypt(current.get("zhipuKey")),
                 cipher.encrypt(current.get("comfyuiToken")), nullIfBlank(current.get("clothingDirectory")),
                 nullIfBlank(current.get("videoDirectory")), nullIfBlank(current.get("generatedDirectory")),
                 nullIfBlank(current.get("videoExportDirectory")), nullIfBlank(current.get("auditOutputDirectory")),
@@ -259,6 +263,7 @@ public class AccountService implements ApplicationRunner {
         return switch (field) {
             case "runninghubKey" -> "runninghub_key"; case "snapanyKey" -> "snapany_key";
             case "qwenKey" -> "qwen_key"; case "zhipuKey" -> "zhipu_key"; case "comfyuiToken" -> "comfyui_token";
+            case "geminiKey" -> "gemini_key"; case "gptImagesKey" -> "gpt_images_key";
             case "clothingDirectory" -> "clothing_directory"; case "videoDirectory" -> "video_directory";
             case "generatedDirectory" -> "generated_directory"; case "videoExportDirectory" -> "video_export_directory";
             case "auditOutputDirectory" -> "audit_output_directory"; case "storyOutputDirectory" -> "story_output_directory";

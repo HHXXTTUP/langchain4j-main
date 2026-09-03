@@ -23,6 +23,13 @@
     </properties>
 
     <dependencies>
+        <!-- MultipartBodyBuilder references the Reactive Streams Publisher type at runtime,
+             even though this application uses Spring MVC rather than WebFlux. -->
+        <dependency>
+            <groupId>org.reactivestreams</groupId>
+            <artifactId>reactive-streams</artifactId>
+            <version>1.0.4</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>

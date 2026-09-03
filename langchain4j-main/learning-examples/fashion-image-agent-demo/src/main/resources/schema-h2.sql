@@ -79,13 +79,15 @@ CREATE TABLE IF NOT EXISTS app_account (
     updated_at TIMESTAMP(6) NOT NULL
 );
 CREATE TABLE IF NOT EXISTS app_account_setting (
-    account_id VARCHAR(36) PRIMARY KEY, runninghub_key CLOB, snapany_key CLOB, qwen_key CLOB,
+    account_id VARCHAR(36) PRIMARY KEY, runninghub_key CLOB, snapany_key CLOB, qwen_key CLOB, gemini_key CLOB, gpt_images_key CLOB,
     zhipu_key CLOB, comfyui_token CLOB, clothing_directory VARCHAR(1000), video_directory VARCHAR(1000),
     generated_directory VARCHAR(1000), video_export_directory VARCHAR(1000),
     audit_output_directory VARCHAR(1000), story_output_directory VARCHAR(1000),
     bgm_directory VARCHAR(1000), qwen_output_directory VARCHAR(1000), updated_at TIMESTAMP(6) NOT NULL,
     CONSTRAINT fk_account_setting_account FOREIGN KEY(account_id) REFERENCES app_account(id) ON DELETE CASCADE
 );
+ALTER TABLE app_account_setting ADD COLUMN IF NOT EXISTS gemini_key CLOB;
+ALTER TABLE app_account_setting ADD COLUMN IF NOT EXISTS gpt_images_key CLOB;
 
 CREATE TABLE IF NOT EXISTS short_drama_director_job (
     id VARCHAR(36) PRIMARY KEY, mode VARCHAR(40) NOT NULL, source_type VARCHAR(16) NOT NULL,
@@ -138,6 +140,14 @@ CREATE TABLE IF NOT EXISTS my_script_character_asset (
     CONSTRAINT uq_my_script_character_name UNIQUE(project_id, character_name)
 );
 CREATE INDEX IF NOT EXISTS idx_my_script_character_project ON my_script_character_asset(project_id, sort_order);
+CREATE TABLE IF NOT EXISTS my_script_episode_asset (
+    id VARCHAR(36) PRIMARY KEY, episode_id VARCHAR(36) NOT NULL, asset_type VARCHAR(24) NOT NULL,
+    asset_name VARCHAR(160) NOT NULL, prompt_text CLOB, image_sources_json CLOB NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL, updated_at TIMESTAMP(6) NOT NULL,
+    CONSTRAINT fk_my_script_episode_asset_episode FOREIGN KEY(episode_id) REFERENCES my_script_episode(id) ON DELETE CASCADE,
+    CONSTRAINT uq_my_script_episode_asset UNIQUE(episode_id, asset_type, asset_name)
+);
+CREATE INDEX IF NOT EXISTS idx_my_script_episode_asset_episode ON my_script_episode_asset(episode_id, asset_type);
 CREATE TABLE IF NOT EXISTS script_replication_generation (
     id VARCHAR(36) PRIMARY KEY, segment_id VARCHAR(36) NOT NULL, comfy_task_id VARCHAR(36), status VARCHAR(24) NOT NULL,
     final_video_url CLOB, error_message CLOB, created_at TIMESTAMP(6) NOT NULL, updated_at TIMESTAMP(6) NOT NULL,

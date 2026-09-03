@@ -105,7 +105,8 @@ snapany:
 qwen:
   base-url: ${QWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
   api-key: ${DASHSCOPE_API_KEY:${QWEN_API_KEY:}}
-  model: ${QWEN_VIDEO_SCRIPT_MODEL:qwen3.8-max}
+  model: ${QWEN_DIRECTOR_MODEL:qwen3.7-plus}
+  video-script-model: ${QWEN_VIDEO_SCRIPT_MODEL:qwen3.8-max}
   # Omit enable_thinking by default for the most compatible, low-latency
   # non-streaming request. Set QWEN_THINKING_ENABLED=true when required.
   thinking-enabled: ${QWEN_THINKING_ENABLED:false}
@@ -117,11 +118,22 @@ qwen:
   proxy-enabled: ${QWEN_PROXY_ENABLED:true}
   proxy-host: ${QWEN_PROXY_HOST:127.0.0.1}
   proxy-port: ${QWEN_PROXY_PORT:7897}
+  video-script-proxy-enabled: ${QWEN_VIDEO_SCRIPT_PROXY_ENABLED:false}
   max-video-bytes: ${QWEN_MAX_VIDEO_BYTES:7340032}
   output-directory: ${QWEN_VIDEO_SCRIPT_DIRECTORY:generated/video-scripts}
   # Automatic retries are disabled. Use the page's explicit retry action.
   analysis-max-attempts: ${QWEN_ANALYSIS_MAX_ATTEMPTS:1}
   analysis-retry-delay: ${QWEN_ANALYSIS_RETRY_DELAY:0s}
+
+gemini:
+  base-url: ${GEMINI_BASE_URL:https://api.rtoc.cc}
+  api-key: ${NEW_API_KEY:}
+  model: ${GEMINI_MODEL:gemini-3.7-flash}
+
+gpt-images:
+  base-url: ${GPT_IMAGES_BASE_URL:https://api.rtoc.cc}
+  api-key: ${GPT_IMAGES_API_KEY:}
+  model: ${GPT_IMAGES_MODEL:gpt-image-2}
 
 comfyui:
   video:

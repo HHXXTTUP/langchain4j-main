@@ -56,9 +56,9 @@ public class QwenVideoScriptService {
         this.executor = executor; this.clients = clients;
         String base = properties.getBaseUrl().toString().replaceAll("/+$", "");
         this.chatCompletionsEndpoint = URI.create(base + "/chat/completions");
-        LOGGER.info("千问视频脚本服务初始化 model={} chatCompletionsEndpoint={} connectTimeout={} readTimeout={} route={}",
-                properties.getModel(), chatCompletionsEndpoint, properties.getConnectTimeout(), properties.getReadTimeout(),
-                clients.configuredRoute());
+        LOGGER.info("千问视频脚本服务初始化 model={} chatCompletionsEndpoint={} connectTimeout={} readTimeout={} route={} videoProxyEnabled={}",
+                properties.getVideoScriptModel(), chatCompletionsEndpoint, properties.getConnectTimeout(), properties.getReadTimeout(),
+                properties.isVideoScriptProxyEnabled() ? clients.configuredRoute() : "direct-only", properties.isVideoScriptProxyEnabled());
     }
 
     public QwenVideoScriptView create(String address, boolean parseImmediately) {
@@ -144,23 +144,37 @@ public class QwenVideoScriptService {
         message.put("role", "user");
         message.put("content", List.of(videoPart, textPart));
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", properties.getModel());
+        body.put("model", properties.getVideoScriptModel());
         body.put("messages", List.of(message));
         body.put("stream", false);
         if (properties.isThinkingEnabled()) body.put("enable_thinking", true);
-        QwenRestClientProvider.Selection selection = clients.select();
-        LOGGER.info("千问视频脚本分析请求发送 endpoint={} route={} file={} payloadBytes={} videoFps=2 thinking={} autoRetry=false",
-                chatCompletionsEndpoint, selection.route(), video, bytes.length, properties.isThinkingEnabled());
+        QwenRestClientProvider.Selection selection = properties.isVideoScriptProxyEnabled() ? clients.select() : clients.selectDirect();
+        QwenProperties.ApiKeyDiagnostic key = properties.apiKeyDiagnostic(apiKey);
+        long started = System.nanoTime();
+        LOGGER.info("千问视频脚本分析请求发送 operation=QWEN_VIDEO_SCRIPT method=POST endpoint={} route={} model={} file={} mime={} videoBytes={} encodedBytes={} requestBodyBytes~={} videoFps=2 thinking={} autoRetry=false keySource={} keyFingerprint={} keyLength={}",
+                chatCompletionsEndpoint, selection.route(), properties.getVideoScriptModel(), video, mime, bytes.length,
+                videoData.length(), videoData.length() + FIXED_PROMPT.length() + 500, properties.isThinkingEnabled(), key.source(), key.fingerprint(), key.length());
+        LOGGER.info("千问视频脚本分析请求详情 operation=QWEN_VIDEO_SCRIPT headers=[Content-Type: application/json, Authorization: Bearer **REDACTED**] bodySummary={model={},messages=1,videoUrlDataChars={},promptChars={},stream=false}",
+                properties.getVideoScriptModel(), videoData.length(), FIXED_PROMPT.length());
+        try {
         JsonNode response = selection.client().post().uri(chatCompletionsEndpoint)
                 .headers(h -> {
                     h.setBearerAuth(apiKey);
                     h.setAccept(List.of(MediaType.APPLICATION_JSON));
                     h.set("User-Agent", "fashion-image-agent/1.0");
                 }).contentType(MediaType.APPLICATION_JSON).body(body).retrieve()
-                .onStatus(HttpStatusCode::isError, (request, result) -> { throw new IllegalStateException("千问接口请求失败（HTTP " + result.getStatusCode().value() + "）：" + new String(result.getBody().readAllBytes(), StandardCharsets.UTF_8)); }).body(JsonNode.class);
-        LOGGER.info("千问视频脚本分析响应成功 file={} responsePresent={}", video, response != null);
+                .onStatus(HttpStatusCode::isError, (request, result) -> {
+                    String error = readBody(result);
+                    LOGGER.error("千问视频脚本分析 HTTP 错误 operation=QWEN_VIDEO_SCRIPT status={} endpoint={} route={} durationMs={} responseBodyChars={} responseBody={}", result.getStatusCode().value(), chatCompletionsEndpoint, selection.route(), elapsedMillis(started), error.length(), truncate(error));
+                    throw new IllegalStateException("千问接口请求失败（HTTP " + result.getStatusCode().value() + "）：" + truncate(error));
+                }).body(JsonNode.class);
+        LOGGER.info("千问视频脚本分析响应成功 operation=QWEN_VIDEO_SCRIPT file={} route={} durationMs={} responsePresent={} responseChars={}", video, selection.route(), elapsedMillis(started), response != null, response == null ? 0 : response.toString().length());
         if (response != null && response.has("code") && !response.get("code").asText().isBlank() && !"0".equals(response.get("code").asText())) throw new IllegalStateException("千问接口返回错误：" + response.path("message").asText(response.path("code").asText()));
         String text = extractText(response); if (text == null || text.isBlank()) throw new IllegalStateException("千问接口未返回脚本文本"); return text.trim();
+        } catch (RuntimeException exception) {
+            LOGGER.error("千问视频脚本分析请求失败 operation=QWEN_VIDEO_SCRIPT endpoint={} route={} durationMs={} reason={}", chatCompletionsEndpoint, selection.route(), elapsedMillis(started), rootMessage(exception), exception);
+            throw exception;
+        }
     }
 
     private Job require(UUID id) { return repository.find(id).map(Job::from).orElseThrow(() -> new IllegalArgumentException("视频脚本任务不存在")); }
@@ -189,6 +203,9 @@ public class QwenVideoScriptService {
         return null;
     }
     private static String rootMessage(Throwable e) { Throwable c=e; while(c.getCause()!=null)c=c.getCause(); return c.getMessage()==null?c.toString():c.getMessage(); }
+    private static String readBody(org.springframework.http.client.ClientHttpResponse response) { try { return new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8); } catch (IOException exception) { return "<无法读取响应体: " + rootMessage(exception) + ">"; } }
+    private static String truncate(String value) { return value == null ? "" : value.length() <= 8000 ? value : value.substring(0, 8000) + "...(truncated)"; }
+    private static long elapsedMillis(long started) { return java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started); }
     private static boolean hasCause(Throwable error, Class<? extends Throwable> type) {
         for (Throwable current = error; current != null; current = current.getCause()) {
             if (type.isInstance(current)) return true;

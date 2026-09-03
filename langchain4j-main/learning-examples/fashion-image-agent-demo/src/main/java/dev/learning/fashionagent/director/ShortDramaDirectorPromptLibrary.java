@@ -45,7 +45,7 @@ public class ShortDramaDirectorPromptLibrary {
         StringBuilder prompt = new StringBuilder(read(ROOT + "SKILL.md"));
         for (String file : REFERENCES.get(ShortDramaDirectorMode.FULL_EPISODE)) prompt.append("\n\n--- 专项规则：").append(file).append(" ---\n").append(read(ROOT + "references/" + file));
         prompt.append("\n当前执行模式：剧情推演。动作强度：").append(normalize(tier, "R2")).append("。发布平台：").append(normalize(platform, "抖音")).append("。画幅：").append(normalize(aspectRatio, "9:16"))
-                .append("。只输出本集正文，不重复剧本设定；每段可独立拍摄且不超过15秒，必须包含场景锚点、镜头运动、动作因果、对白（中文双引号）和结尾钩子。\n");
+                .append("。只输出本集故事正文，不重复剧本设定，不输出分镜、镜头、摄影、运镜、时长、画质参数或制作说明；用通俗现代汉语按小说叙事方式写清人物、因果、动作、环境变化、情绪和对白，保证前后对白口吻统一、事件真实连贯，结尾留下明确的剧情钩子。对白只用中文双引号标记，不添加字幕或声音制作要求；不要使用文言文、空泛形容词或重复段落。\n");
         return prompt.toString();
     }
 

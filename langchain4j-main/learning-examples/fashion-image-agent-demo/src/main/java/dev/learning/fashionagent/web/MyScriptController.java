@@ -6,7 +6,9 @@ import dev.learning.fashionagent.script.MyScriptService.ProjectView;
 import dev.learning.fashionagent.script.MyScriptService.SegmentView;
 import dev.learning.fashionagent.script.MyScriptService.CharacterView;
 import dev.learning.fashionagent.script.MyScriptService.CharacterRequest;
+import dev.learning.fashionagent.script.MyScriptService.EpisodeAssetView;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,7 +33,12 @@ public class MyScriptController {
         return ResponseEntity.accepted().body(service.rewriteEpisode(id, request == null ? null : request.idea(), request == null ? null : request.promptId()));
     }
     @GetMapping("/{id}/characters") List<CharacterView> characters(@PathVariable UUID id) { return service.characters(id); }
+    @GetMapping("/episodes/{id}/assets") List<EpisodeAssetView> episodeAssets(@PathVariable UUID id) { return service.episodeAssets(id); }
     @PostMapping("/{id}/characters") ResponseEntity<Void> saveCharacters(@PathVariable UUID id, @RequestBody List<CharacterRequest> requests) { service.saveCharacters(id, requests); return ResponseEntity.ok().build(); }
+    @PostMapping("/{id}/characters/generate") CharacterView generateCharacter(@PathVariable UUID id, @RequestBody CharacterGenerateRequest request) { return service.generateCharacter(id, request == null ? null : request.characterName(), request == null ? null : request.prompt()); }
+    @PostMapping("/{id}/characters/generate-all") List<CharacterView> generateAllCharacters(@PathVariable UUID id) { return service.generateAllCharacters(id); }
+    @PostMapping("/episodes/{id}/assets/character") Map<String, String> generateEpisodeCharacter(@PathVariable UUID id, @RequestBody CharacterGenerateRequest request) { return Map.of("image", service.generateEpisodeCharacter(id, request == null ? null : request.characterName(), request == null ? null : request.prompt())); }
+    @PostMapping("/episodes/{id}/assets/environment") Map<String, String> generateEpisodeEnvironment(@PathVariable UUID id, @RequestBody Map<String, String> request) { return Map.of("image", service.generateEpisodeEnvironment(id, request == null ? null : request.get("prompt"))); }
     @PostMapping("/episodes/{id}/replication-segments") MyScriptService.ReplicationView prepareReplication(@PathVariable UUID id) { return service.prepareReplication(id); }
     @PostMapping("/episodes/{id}/replication-segments/replan") MyScriptService.ReplicationView replanReplication(@PathVariable UUID id) { return service.replanReplication(id); }
     @GetMapping("/episodes/{id}/replication-segments") List<SegmentView> segments(@PathVariable UUID id) { return service.segments(id); }
@@ -42,4 +49,5 @@ public class MyScriptController {
     public record ReplicateRequest(List<String> images, String resolution) {}
     public record SegmentUpdateRequest(String content, Integer durationSeconds) {}
     public record RewriteRequest(String idea, UUID promptId) {}
+    public record CharacterGenerateRequest(String characterName, String prompt) {}
 }

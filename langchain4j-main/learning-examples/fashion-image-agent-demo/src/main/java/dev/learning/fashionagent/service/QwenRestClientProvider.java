@@ -65,6 +65,8 @@ public class QwenRestClientProvider {
         throw new IllegalStateException(message);
     }
 
+    public Selection selectDirect() { return new Selection(directClient, "direct"); }
+
     public String configuredRoute() {
         return proxyClient == null ? "direct-only" : "dynamic-proxy=" + proxyHost + ":" + proxyPort;
     }
