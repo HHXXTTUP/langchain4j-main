@@ -86,6 +86,11 @@ CREATE TABLE IF NOT EXISTS app_account_setting (
     bgm_directory VARCHAR(1000), qwen_output_directory VARCHAR(1000), updated_at TIMESTAMP(6) NOT NULL,
     CONSTRAINT fk_account_setting_account FOREIGN KEY(account_id) REFERENCES app_account(id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS app_menu_config (
+    menu_id VARCHAR(64) PRIMARY KEY, label VARCHAR(80) NOT NULL, sort_order INT NOT NULL,
+    enabled BOOLEAN DEFAULT TRUE NOT NULL, updated_at TIMESTAMP(6) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_app_menu_config_order ON app_menu_config(sort_order, menu_id);
 ALTER TABLE app_account_setting ADD COLUMN IF NOT EXISTS gemini_key CLOB;
 ALTER TABLE app_account_setting ADD COLUMN IF NOT EXISTS gpt_images_key CLOB;
 
@@ -104,12 +109,13 @@ CREATE TABLE IF NOT EXISTS my_script_project (
 );
 CREATE TABLE IF NOT EXISTS my_script_episode (
     id VARCHAR(36) PRIMARY KEY, project_id VARCHAR(36) NOT NULL, episode_number INT NOT NULL,
-    title VARCHAR(255) NOT NULL, content CLOB, status VARCHAR(24) NOT NULL,
+    title VARCHAR(255) NOT NULL, summary_text CLOB, content CLOB, status VARCHAR(24) NOT NULL,
     message VARCHAR(1000), error_message CLOB, created_at TIMESTAMP(6) NOT NULL,
     updated_at TIMESTAMP(6) NOT NULL,
     CONSTRAINT fk_my_script_episode_project FOREIGN KEY(project_id) REFERENCES my_script_project(id) ON DELETE CASCADE,
     CONSTRAINT uq_my_script_episode_number UNIQUE(project_id, episode_number)
 );
+ALTER TABLE my_script_episode ADD COLUMN IF NOT EXISTS summary_text CLOB;
 CREATE INDEX IF NOT EXISTS idx_my_script_episode_project ON my_script_episode(project_id, episode_number);
 CREATE TABLE IF NOT EXISTS my_script_episode_prompt (
     id VARCHAR(36) PRIMARY KEY, episode_id VARCHAR(36) NOT NULL, version_number INT NOT NULL,
@@ -158,3 +164,30 @@ CREATE TABLE IF NOT EXISTS script_replication_episode_material (
     episode_id VARCHAR(36) PRIMARY KEY, material_json CLOB NOT NULL, updated_at TIMESTAMP(6) NOT NULL,
     CONSTRAINT fk_script_replication_material_episode FOREIGN KEY(episode_id) REFERENCES my_script_episode(id) ON DELETE CASCADE
 );
+
+-- Immutable snapshots for every explicit "剧本翻拍" request. The legacy
+-- episode-level replication tables remain for backwards-compatible migration.
+CREATE TABLE IF NOT EXISTS script_replication_version (
+    id VARCHAR(36) PRIMARY KEY, episode_id VARCHAR(36) NOT NULL, version_number INT NOT NULL,
+    status VARCHAR(24) NOT NULL, material_json CLOB NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL, updated_at TIMESTAMP(6) NOT NULL,
+    CONSTRAINT fk_script_replication_version_episode FOREIGN KEY(episode_id) REFERENCES my_script_episode(id) ON DELETE CASCADE,
+    CONSTRAINT uq_script_replication_version_number UNIQUE(episode_id, version_number)
+);
+CREATE INDEX IF NOT EXISTS idx_script_replication_version_episode ON script_replication_version(episode_id, version_number);
+CREATE TABLE IF NOT EXISTS script_replication_version_segment (
+    id VARCHAR(36) PRIMARY KEY, version_id VARCHAR(36) NOT NULL, segment_number INT NOT NULL,
+    content CLOB NOT NULL, duration_seconds INT NOT NULL, status VARCHAR(24) NOT NULL,
+    comfy_task_id VARCHAR(36), error_message CLOB, created_at TIMESTAMP(6) NOT NULL, updated_at TIMESTAMP(6) NOT NULL,
+    CONSTRAINT fk_script_replication_version_segment FOREIGN KEY(version_id) REFERENCES script_replication_version(id) ON DELETE CASCADE,
+    CONSTRAINT uq_script_replication_version_segment UNIQUE(version_id, segment_number)
+);
+CREATE INDEX IF NOT EXISTS idx_script_replication_version_segment ON script_replication_version_segment(version_id, segment_number);
+CREATE TABLE IF NOT EXISTS script_replication_version_asset (
+    id VARCHAR(36) PRIMARY KEY, version_id VARCHAR(36) NOT NULL, asset_type VARCHAR(24) NOT NULL,
+    asset_name VARCHAR(160) NOT NULL, prompt_text CLOB, image_sources_json CLOB NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL, updated_at TIMESTAMP(6) NOT NULL,
+    CONSTRAINT fk_script_replication_version_asset FOREIGN KEY(version_id) REFERENCES script_replication_version(id) ON DELETE CASCADE,
+    CONSTRAINT uq_script_replication_version_asset UNIQUE(version_id, asset_type, asset_name)
+);
+CREATE INDEX IF NOT EXISTS idx_script_replication_version_asset ON script_replication_version_asset(version_id, asset_type);

@@ -15,10 +15,11 @@ import org.slf4j.LoggerFactory;
 public class AuthenticationInterceptor implements HandlerInterceptor {
     private static final Logger LOGGER = LoggerFactory.getLogger(AuthenticationInterceptor.class);
     private final AccountService accounts;
+    private final MenuConfigService menus;
     private final ObjectMapper mapper;
 
-    public AuthenticationInterceptor(AccountService accounts, ObjectMapper mapper) {
-        this.accounts = accounts; this.mapper = mapper;
+    public AuthenticationInterceptor(AccountService accounts, MenuConfigService menus, ObjectMapper mapper) {
+        this.accounts = accounts; this.menus = menus; this.mapper = mapper;
     }
 
     @Override
@@ -39,7 +40,7 @@ public class AuthenticationInterceptor implements HandlerInterceptor {
             return reject(request, response, 403, "账号已过有效期，请联系管理员");
         }
         Set<String> requiredMenus = menusFor(request.getRequestURI());
-        if (!requiredMenus.isEmpty() && requiredMenus.stream().noneMatch(account::allows)) {
+        if (!requiredMenus.isEmpty() && requiredMenus.stream().noneMatch(menu -> menus.enabled(menu) && account.allows(menu))) {
             if (request.getRequestURI().startsWith("/api/qwen-video-scripts")) {
                 LOGGER.warn("千问视频脚本请求被菜单权限拦截 uri={} accountId={}", request.getRequestURI(), account.id());
             }

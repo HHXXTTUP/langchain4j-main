@@ -6,7 +6,7 @@ import dev.learning.fashionagent.account.AccountService.AccountView;
 import dev.learning.fashionagent.account.AccountService.CreateAccount;
 import dev.learning.fashionagent.account.AccountService.UpdateAccount;
 import dev.learning.fashionagent.account.ApplicationPackageService;
-import dev.learning.fashionagent.account.MenuCatalog;
+import dev.learning.fashionagent.account.MenuConfigService;
 import dev.learning.fashionagent.account.NativeDirectoryPicker;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
@@ -31,17 +31,27 @@ public class AccountController {
     private final AccountService accounts;
     private final ApplicationPackageService packages;
     private final NativeDirectoryPicker directoryPicker;
-    public AccountController(AccountService accounts, ApplicationPackageService packages, NativeDirectoryPicker directoryPicker) {
+    private final MenuConfigService menuConfig;
+    public AccountController(AccountService accounts, ApplicationPackageService packages, NativeDirectoryPicker directoryPicker, MenuConfigService menuConfig) {
         this.accounts = accounts;
         this.packages = packages;
         this.directoryPicker = directoryPicker;
+        this.menuConfig = menuConfig;
     }
 
     @GetMapping
     List<AccountView> list(HttpServletRequest request) { return accounts.list(current(request)); }
 
     @GetMapping("/menus")
-    List<MenuCatalog.MenuOption> menus() { return MenuCatalog.options(); }
+    List<MenuConfigService.MenuOptionView> menus() { return menuConfig.options(); }
+
+    @GetMapping("/menu-config")
+    List<MenuConfigService.MenuOptionView> menuConfig(HttpServletRequest request) { requireAdmin(request); return menuConfig.all(); }
+
+    @PutMapping("/menu-config")
+    List<MenuConfigService.MenuOptionView> updateMenuConfig(@RequestBody List<MenuConfigService.MenuUpdate> body, HttpServletRequest request) {
+        requireAdmin(request); return menuConfig.update(body);
+    }
 
     @PostMapping
     AccountView create(@RequestBody CreateAccount body, HttpServletRequest request) { requireAdmin(request); return accounts.create(body); }

@@ -26,6 +26,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.multipart.MultipartFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -71,6 +72,49 @@ public class QwenVideoScriptService {
 
     public QwenVideoScriptView create(String address) { return create(address, true); }
 
+    /** Stores a browser-uploaded video locally and sends it through the same analysis pipeline as URL imports. */
+    public QwenVideoScriptView create(MultipartFile upload, boolean parseImmediately) {
+        if (upload == null || upload.isEmpty()) throw new IllegalArgumentException("请上传视频文件");
+        String originalName = originalFileName(upload.getOriginalFilename());
+        String extension = uploadExtension(originalName, upload.getContentType());
+        if (!isVideoUpload(extension, upload.getContentType())) {
+            throw new IllegalArgumentException("仅支持视频文件（MP4、MOV、WEBM、M4V、MKV、AVI）");
+        }
+        if (upload.getSize() > properties.getMaxVideoBytes()) {
+            throw new IllegalArgumentException("视频文件不能超过 " + properties.getMaxVideoBytes() / (1024 * 1024) + " MB");
+        }
+        String apiKey = parseImmediately ? properties.requiredApiKey() : null;
+        UUID id = UUID.randomUUID();
+        Path work = Path.of(properties.getOutputDirectory()).toAbsolutePath().normalize().resolve(id.toString());
+        Job job = new Job(id, "本地上传", Instant.now());
+        try {
+            Files.createDirectories(work);
+            Path target = work.resolve("source" + extension);
+            upload.transferTo(target);
+            long size = Files.size(target);
+            if (size <= 0 || size > properties.getMaxVideoBytes()) {
+                Files.deleteIfExists(target);
+                throw new IllegalArgumentException("视频文件大小不符合千问接口限制：" + size + " bytes");
+            }
+            job.videoPath = target;
+            job.sourceFileName = originalName;
+            job.status = "DOWNLOADED";
+            job.message = parseImmediately ? "视频上传完成，正在准备千问分析" : "视频上传完成，可点击生成文案";
+            save(job);
+            if (parseImmediately) {
+                job.status = "ANALYZING";
+                job.message = "正在调用千问分析脚本";
+                save(job);
+                executor.execute(() -> analyze(job, apiKey));
+            }
+            return job.view();
+        } catch (IOException exception) {
+            throw new IllegalStateException("无法保存上传的视频文件", exception);
+        }
+    }
+
+    public QwenVideoScriptView create(MultipartFile upload) { return create(upload, true); }
+
     public List<QwenVideoScriptView> list() { return repository.list().stream().map(QwenVideoScriptView::from).toList(); }
 
     public QwenVideoScriptView get(UUID id) { return require(id).view(); }
@@ -103,6 +147,36 @@ public class QwenVideoScriptService {
             job.message = parseImmediately ? "视频下载完成，正在准备千问分析" : "视频下载完成，可点击生成文案"; save(job);
             if (parseImmediately) { job.status = "ANALYZING"; job.message = "正在调用千问分析脚本"; save(job); analyze(job, apiKey); }
         } catch (Exception e) { fail(job, "视频下载失败", e); }
+    }
+
+    private static String originalFileName(String name) {
+        if (name == null || name.isBlank()) return "uploaded-video.mp4";
+        String normalized = Path.of(name.replace('\\', '/')).getFileName().toString().trim();
+        return normalized.isBlank() ? "uploaded-video.mp4" : normalized;
+    }
+
+    private static String uploadExtension(String fileName, String contentType) {
+        int dot = fileName.lastIndexOf('.');
+        if (dot >= 0 && dot < fileName.length() - 1) {
+            String candidate = fileName.substring(dot).toLowerCase();
+            if (List.of(".mp4", ".mov", ".webm", ".m4v", ".mkv", ".avi").contains(candidate)
+                    || contentType == null || !contentType.toLowerCase().startsWith("video/")) return candidate;
+        }
+        if (contentType != null) {
+            return switch (contentType.toLowerCase()) {
+                case "video/quicktime" -> ".mov";
+                case "video/webm" -> ".webm";
+                case "video/x-matroska" -> ".mkv";
+                case "video/x-msvideo" -> ".avi";
+                default -> ".mp4";
+            };
+        }
+        return ".mp4";
+    }
+
+    private static boolean isVideoUpload(String extension, String contentType) {
+        if (contentType != null && contentType.toLowerCase().startsWith("video/")) return true;
+        return List.of(".mp4", ".mov", ".webm", ".m4v", ".mkv", ".avi").contains(extension);
     }
 
     private void analyze(Job job, String apiKey) {

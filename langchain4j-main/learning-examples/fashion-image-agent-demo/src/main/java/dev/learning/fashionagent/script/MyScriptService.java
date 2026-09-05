@@ -21,6 +21,7 @@ import java.util.Base64;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
@@ -39,6 +40,9 @@ public class MyScriptService {
     private static final Pattern EPISODE_MARKER = Pattern.compile("(?m)^【?第\\s*(\\d+)\\s*集[^】]*】?\\s*$");
     private static final Pattern TITLE_MARKER = Pattern.compile("(?m)^【剧本名称】\\s*(.+)$");
     private static final Pattern SETTINGS_MARKER = Pattern.compile("(?s)【剧本设定】\\s*(.*?)(?=【第\\s*1\\s*集|$)");
+    private static final Pattern EPISODE_TITLE_MARKER = Pattern.compile("(?m)^【本集标题】\\s*(.+)$");
+    private static final Pattern EPISODE_SUMMARY_MARKER = Pattern.compile("(?s)【内容概述】\\s*(.*?)(?=\\n\\s*【正文】)");
+    private static final Pattern EPISODE_BODY_MARKER = Pattern.compile("(?s)【正文】\\s*(.*)$");
     private final MyScriptRepository repository;
     private final GeminiProperties geminiProperties;
     private final GptImageProperties gptImageProperties;
@@ -76,7 +80,27 @@ public class MyScriptService {
     public List<ProjectView> list() { return repository.listProjects().stream().map(this::view).toList(); }
     public ProjectView get(UUID id) { return view(requireProject(id)); }
     public EpisodeView episode(UUID id) { return episodeView(requireEpisode(id)); }
-    public List<SegmentView> segments(UUID episodeId) { return repository.listSegments(episodeId).stream().map(this::segmentView).toList(); }
+    public List<SegmentView> segments(UUID episodeId) {
+        requireEpisode(episodeId);
+        MyScriptRepository.ReplicationVersion latest = latestReplicationVersion(episodeId);
+        if (latest != null) return repository.listReplicationVersionSegments(latest.id()).stream().map(segment -> segmentView(segment, episodeId)).toList();
+        return repository.listSegments(episodeId).stream().map(this::segmentView).toList();
+    }
+    public List<ReplicationVersionSummaryView> replicationVersions(UUID episodeId) {
+        requireEpisode(episodeId);
+        return repository.listReplicationVersions(episodeId).stream().map(this::replicationVersionSummary).toList();
+    }
+    public ReplicationView replicationVersion(UUID versionId) {
+        MyScriptRepository.ReplicationVersion version = repository.findReplicationVersion(versionId)
+                .orElseThrow(() -> new IllegalArgumentException("剧集复刻版本不存在"));
+        return replicationView(version);
+    }
+    public ReplicationView currentReplication(UUID episodeId) {
+        requireEpisode(episodeId);
+        MyScriptRepository.ReplicationVersion version = latestReplicationVersion(episodeId);
+        if (version == null) throw new IllegalStateException("本集还没有剧集复刻版本，请先点击剧本翻拍");
+        return replicationView(version);
+    }
     public List<CharacterView> characters(UUID projectId) { return repository.listCharacterAssets(projectId).stream().map(this::characterView).toList(); }
     public List<EpisodeAssetView> episodeAssets(UUID episodeId) { requireEpisode(episodeId); return repository.listEpisodeAssets(episodeId).stream().map(this::episodeAssetView).toList(); }
     public CharacterView generateCharacter(UUID projectId, String characterName, String prompt) {
@@ -268,7 +292,7 @@ public class MyScriptService {
         MyScriptRepository.Prompt basePrompt = promptId == null ? null : repository.findPrompt(promptId)
                 .filter(prompt -> prompt.episodeId().equals(episodeId))
                 .orElseThrow(() -> new IllegalArgumentException("提示词记录不存在或不属于当前集"));
-        MyScriptRepository.Episode queued = new MyScriptRepository.Episode(episode.id(), episode.projectId(), episode.number(), episode.title(), episode.content(), "QUEUED", "正在排队重写本集", null, episode.createdAt(), Instant.now());
+        MyScriptRepository.Episode queued = new MyScriptRepository.Episode(episode.id(), episode.projectId(), episode.number(), episode.title(), episode.summary(), episode.content(), "QUEUED", "正在排队重写本集", null, episode.createdAt(), Instant.now());
         repository.saveEpisode(queued);
         String apiKey = geminiProperties.requiredApiKey();
         executor.execute(() -> rewriteEpisodeInBackground(project, episode, idea.trim(), basePrompt, apiKey));
@@ -283,7 +307,8 @@ public class MyScriptService {
             MyScriptRepository.Episode previous = previousEpisode(original);
             String previousText = previous == null ? "无上一集" : safe(previous.content());
             String system = prompts.episodeInstructions("R2", "抖音", "9:16")
-                    + "\n现在重写第" + original.number() + "集。只输出这一集通俗易懂的故事正文，不要输出剧本设定、解释、分析、分镜、镜头、运镜、时长或Markdown。必须保留剧本设定中的人物关系、世界观、风格基调和已确定的连续性；根据用户重写想法调整冲突、节奏、动作、对白和结尾钩子。不要把视频制作术语写进正文，不使用文言文或重复段落；对白只用中文双引号标记。输出以【第" + original.number() + "集】开始。";
+                    + episodeOutputContract(original.number())
+                    + "\n现在重写第" + original.number() + "集。必须保留剧本设定中的人物关系、世界观、风格基调和已确定的连续性；根据用户重写想法调整冲突、节奏、动作、对白和结尾钩子。正文不要写视频制作术语，不使用文言文或重复段落；对白只用中文双引号标记。";
             String user = "【剧本设定】\n" + project.settings()
                     + "\n【上一集正文，用于衔接】\n" + previousText
                     + "\n【当前第" + original.number() + "集原稿】\n" + safe(original.content())
@@ -292,15 +317,13 @@ public class MyScriptService {
             prompt = newPrompt(original.id(), "USER_REWRITE", basePrompt == null ? "用户重写" : "基于历史提示词重写", idea, system, user);
             repository.savePrompt(prompt);
             prompt = updatePrompt(prompt, "RUNNING", null, null);
-            String content = extractText(geminiClient.call("我的剧本/重写", system, user, apiKey));
-            content = stripEpisodeHeading(content, original.number());
-            if (content.isBlank()) throw new IllegalStateException("Gemini 未返回重写后的第" + original.number() + "集正文");
-            updateEpisode(original, "SUCCESS", "本集重写完成", content, null);
-            updatePrompt(prompt, "SUCCESS", content, null);
+            GeneratedEpisode generated = parseGeneratedEpisode(extractText(geminiClient.call("我的剧本/重写", system, user, apiKey)), original.number());
+            updateEpisodeContent(original, "SUCCESS", "本集重写完成", generated, null);
+            updatePrompt(prompt, "SUCCESS", generated.formatted(), null);
             repository.deleteSegments(original.id());
             repository.deleteReplicationMaterial(original.id());
             syncArtifactsQuietly(project.id());
-            LOGGER.info("剧本本集重写完成 projectId={} episodeId={} episode={} durationMs={} contentChars={}", project.id(), original.id(), original.number(), elapsedMillis(startedNanos), content.length());
+            LOGGER.info("剧本本集重写完成 projectId={} episodeId={} episode={} durationMs={} contentChars={}", project.id(), original.id(), original.number(), elapsedMillis(startedNanos), generated.content().length());
         } catch (Exception exception) {
             LOGGER.error("剧本本集重写失败 projectId={} episodeId={} episode={} durationMs={} reason={}", project.id(), original.id(), original.number(), elapsedMillis(startedNanos), rootMessage(exception), exception);
             updateEpisode(original, "FAILED", "重写失败，原内容已保留，可再次提交重写", null, rootMessage(exception));
@@ -314,7 +337,66 @@ public class MyScriptService {
         String marker = "(?s)^.*?【第\\s*" + number + "\\s*集[^】]*】";
         return content.replaceFirst(marker, "").trim();
     }
+
+    private static String episodeOutputContract(int number) {
+        return """
+
+                严格只按以下三段格式输出，不要添加Markdown、解释或其他字段：
+                【本集标题】用8至18个汉字概括本集核心冲突或反转，不得只写“第%d集”
+                【内容概述】用60至120个汉字总结本集的起因、主要冲突、关键变化和结尾钩子，不写镜头术语
+                【正文】
+                第%d集完整故事正文
+                标题、概述和正文必须与本集实际剧情一致，不能复用上一集标题或概述。
+                """.formatted(number, number);
+    }
+
+    private static GeneratedEpisode parseGeneratedEpisode(String raw, int number) {
+        String value = raw == null ? "" : raw.replaceFirst("^```(?:json|text|markdown)?", "")
+                .replaceFirst("```$", "").trim();
+        Matcher titleMatcher = EPISODE_TITLE_MARKER.matcher(value);
+        Matcher summaryMatcher = EPISODE_SUMMARY_MARKER.matcher(value);
+        Matcher bodyMatcher = EPISODE_BODY_MARKER.matcher(value);
+        String content = bodyMatcher.find() ? bodyMatcher.group(1).trim() : stripEpisodeHeading(value, number);
+        content = content.replaceFirst("(?s)^【本集标题】.*?(?=【内容概述】)", "")
+                .replaceFirst("(?s)^【内容概述】.*?(?=【正文】)", "")
+                .replaceFirst("(?s)^【正文】", "").trim();
+        if (content.isBlank()) throw new IllegalStateException("Gemini 未返回第" + number + "集正文");
+        String title = titleMatcher.find() ? cleanEpisodeMeta(titleMatcher.group(1), 24) : fallbackEpisodeTitle(content, number);
+        String summary = summaryMatcher.find() ? cleanEpisodeMeta(summaryMatcher.group(1), 180) : fallbackEpisodeSummary(content);
+        if (title.isBlank()) title = "第" + number + "集";
+        if (summary.isBlank()) summary = fallbackEpisodeSummary(content);
+        return new GeneratedEpisode(title, summary, content);
+    }
+
+    private static String cleanEpisodeMeta(String value, int maxLength) {
+        if (value == null) return "";
+        String cleaned = value.replaceAll("[\\r\\n]+", " ").replaceAll("\\s+", " ").trim();
+        return cleaned.length() <= maxLength ? cleaned : cleaned.substring(0, maxLength);
+    }
+
+    private static String fallbackEpisodeTitle(String content, int number) {
+        String first = cleanEpisodeMeta(content.split("(?<=[。！？!?])", 2)[0], 16);
+        return first.isBlank() ? "第" + number + "集" : first.replaceAll("[。！？!?]+$", "");
+    }
+
+    private static String fallbackEpisodeSummary(String content) {
+        String summary = cleanEpisodeMeta(content, 120);
+        return summary.length() < content.replaceAll("\\s+", " ").trim().length() ? summary + "……" : summary;
+    }
     public SegmentView updateSegment(UUID id, String content, Integer durationSeconds) {
+        Optional<MyScriptRepository.ReplicationVersionSegment> versionSegment = repository.findReplicationVersionSegment(id);
+        if (versionSegment.isPresent()) {
+            MyScriptRepository.ReplicationVersionSegment original = versionSegment.get();
+            if (content == null || content.isBlank()) throw new IllegalArgumentException("段落提示词不能为空");
+            int duration = durationSeconds == null ? original.durationSeconds() : Math.max(1, Math.min(MAX_REPLICATION_SEGMENT_SECONDS, durationSeconds));
+            MyScriptRepository.ReplicationVersionSegment changed = new MyScriptRepository.ReplicationVersionSegment(
+                    original.id(), original.versionId(), original.number(), content.trim(), duration, original.status(),
+                    original.comfyTaskId(), original.error(), original.createdAt(), Instant.now());
+            repository.saveReplicationVersionSegment(changed);
+            MyScriptRepository.ReplicationVersion version = repository.findReplicationVersion(original.versionId()).orElseThrow();
+            syncArtifactsQuietly(version.episodeId());
+            return segmentView(changed, version.episodeId());
+        }
         MyScriptRepository.Segment original = requireSegment(id);
         if (content == null || content.isBlank()) throw new IllegalArgumentException("段落提示词不能为空");
         int duration = durationSeconds == null ? original.durationSeconds() : Math.max(1, Math.min(MAX_REPLICATION_SEGMENT_SECONDS, durationSeconds));
@@ -336,7 +418,7 @@ public class MyScriptService {
         }
         int number = episodes.size() + 1;
         Instant now = Instant.now();
-        MyScriptRepository.Episode episode = new MyScriptRepository.Episode(UUID.randomUUID(), projectId, number, "第" + number + "集", null, "QUEUED", "已排队续写", null, now, now);
+        MyScriptRepository.Episode episode = new MyScriptRepository.Episode(UUID.randomUUID(), projectId, number, "第" + number + "集", null, null, "QUEUED", "已排队续写", null, now, now);
         repository.saveEpisode(episode);
         syncArtifactsQuietly(projectId);
         String apiKey = geminiProperties.requiredApiKey();
@@ -353,28 +435,68 @@ public class MyScriptService {
 
     private ReplicationView prepareReplicationLocked(UUID episodeId) {
         MyScriptRepository.Episode episode = requireEpisode(episodeId);
-        List<MyScriptRepository.Segment> existing = repository.listSegments(episodeId);
-        // Older builds stored the entire project setting in every visible card.
-        // Rebuild those untouched legacy cards once, while preserving generated/edited cards.
-        if (!existing.isEmpty() && (existing.stream().allMatch(this::isLegacySegment) || isRepeatedLegacySet(existing) || isLowQualitySegmentSet(existing) || isUnstructuredCharacterMaterial(episodeId))
-                && existing.stream().noneMatch(segment -> segment.comfyTaskId() != null)) {
-            repository.deleteSegments(episodeId);
-            existing = List.of();
-            LOGGER.info("检测到旧版重复复刻段落，已按当前集正文重新整理 episodeId={}", episodeId);
+        MyScriptRepository.ReplicationVersion latest = latestReplicationVersion(episodeId);
+        // Preserve data created by older builds as version 1 before creating a new snapshot.
+        if (latest == null) {
+            ReplicationView migrated = migrateLegacyReplication(episode);
+            if (migrated != null) return migrated;
         }
-        if (!existing.isEmpty()) return replicationView(episodeId, existing);
+        return createReplicationVersionLocked(episode);
+    }
+
+    private ReplicationView createReplicationVersionLocked(MyScriptRepository.Episode episode) {
         if (episode.content() == null || episode.content().isBlank()) throw new IllegalStateException("该集尚未生成内容");
         ReplicationPlan plan = planReplication(episode);
-        saveMaterial(episodeId, plan.material());
+        int versionNumber = repository.listReplicationVersions(episode.id()).stream()
+                .mapToInt(MyScriptRepository.ReplicationVersion::version).max().orElse(0) + 1;
         Instant now = Instant.now();
-        List<MyScriptRepository.Segment> segments = new ArrayList<>();
+        UUID versionId = UUID.randomUUID();
+        MyScriptRepository.ReplicationVersion version = new MyScriptRepository.ReplicationVersion(
+                versionId, episode.id(), versionNumber, "READY", materialJson(plan.material()), now, now);
+        repository.saveReplicationVersion(version);
+        saveMaterial(episode.id(), plan.material());
+        snapshotEpisodeAssets(episode, versionId, now);
         for (int index = 0; index < plan.segments().size(); index++) {
             PlannedSegment part = plan.segments().get(index);
-            MyScriptRepository.Segment segment = new MyScriptRepository.Segment(UUID.randomUUID(), episodeId, index + 1, part.text(), part.durationSeconds(), "READY", null, null, now, now);
-            repository.saveSegment(segment); segments.add(segment);
+            repository.saveReplicationVersionSegment(new MyScriptRepository.ReplicationVersionSegment(
+                    UUID.randomUUID(), versionId, index + 1, part.text(), part.durationSeconds(), "READY", null, null, now, now));
         }
         syncArtifactsQuietly(episode.projectId());
-        return new ReplicationView(plan.material(), segments.stream().map(this::segmentView).toList());
+        LOGGER.info("剧本复刻新版本已创建 episodeId={} versionId={} version={} segments={}", episode.id(), versionId, versionNumber, plan.segments().size());
+        return replicationView(version);
+    }
+
+    private ReplicationView migrateLegacyReplication(MyScriptRepository.Episode episode) {
+        List<MyScriptRepository.Segment> legacy = repository.listSegments(episode.id());
+        Optional<String> legacyMaterial = repository.findReplicationMaterial(episode.id());
+        if (legacy.isEmpty() && legacyMaterial.isEmpty()) return null;
+        Instant now = Instant.now();
+        UUID versionId = UUID.randomUUID();
+        String materialJson = legacyMaterial.orElseGet(() -> materialJson(fallbackMaterial(episode)));
+        MyScriptRepository.ReplicationVersion version = new MyScriptRepository.ReplicationVersion(
+                versionId, episode.id(), 1, "MIGRATED", materialJson, now, now);
+        repository.saveReplicationVersion(version);
+        for (MyScriptRepository.Segment segment : legacy) {
+            repository.saveReplicationVersionSegment(new MyScriptRepository.ReplicationVersionSegment(
+                    UUID.randomUUID(), versionId, segment.number(), segment.content(), segment.durationSeconds(),
+                    segment.status(), segment.comfyTaskId(), segment.error(), segment.createdAt(), segment.updatedAt()));
+        }
+        snapshotEpisodeAssets(episode, versionId, now);
+        LOGGER.info("旧版剧本复刻数据已迁移为历史版本 episodeId={} versionId={} segments={}", episode.id(), versionId, legacy.size());
+        return replicationView(version);
+    }
+
+    private void snapshotEpisodeAssets(MyScriptRepository.Episode episode, UUID versionId, Instant now) {
+        for (MyScriptRepository.EpisodeAsset asset : repository.listEpisodeAssets(episode.id())) {
+            UUID assetId = UUID.nameUUIDFromBytes((versionId + ":" + asset.assetType() + ":" + asset.assetName()).getBytes(StandardCharsets.UTF_8));
+            repository.saveReplicationVersionAsset(new MyScriptRepository.ReplicationVersionAsset(
+                    assetId, versionId, asset.assetType(), asset.assetName(), asset.prompt(), asset.imageSourcesJson(), now, now));
+        }
+    }
+
+    private String materialJson(EpisodeMaterial material) {
+        try { return mapper.writeValueAsString(material); }
+        catch (Exception error) { throw new IllegalStateException("保存本集复刻资料失败", error); }
     }
 
     public ReplicationView replanReplication(UUID episodeId) {
@@ -387,15 +509,13 @@ public class MyScriptService {
     private ReplicationView replanReplicationLocked(UUID episodeId) {
         MyScriptRepository.Episode episode = requireEpisode(episodeId);
         if (episode.content() == null || episode.content().isBlank()) throw new IllegalStateException("该集尚未生成内容");
-        if (repository.listSegments(episodeId).stream().anyMatch(segment -> segment.comfyTaskId() != null)) {
-            throw new IllegalStateException("本集已有生成视频，不能覆盖现有段落；请直接编辑段落或重新生成视频");
-        }
-        repository.deleteSegments(episodeId);
-        syncArtifactsQuietly(episode.projectId());
-        return prepareReplicationLocked(episodeId);
+        if (latestReplicationVersion(episodeId) == null) return prepareReplicationLocked(episodeId);
+        return createReplicationVersionLocked(episode);
     }
 
     public SegmentView replicate(UUID segmentId, List<String> images, String resolution) {
+        Optional<MyScriptRepository.ReplicationVersionSegment> versionSegment = repository.findReplicationVersionSegment(segmentId);
+        if (versionSegment.isPresent()) return replicateVersionSegment(versionSegment.get(), images, resolution);
         MyScriptRepository.Segment segment = requireSegment(segmentId);
         MyScriptRepository.Episode episode = requireEpisode(segment.episodeId());
         MyScriptRepository.Project project = requireProject(episode.projectId());
@@ -423,6 +543,35 @@ public class MyScriptService {
         repository.saveSegment(running);
         syncArtifactsQuietly(project.id());
         return segmentView(running);
+    }
+
+    private SegmentView replicateVersionSegment(MyScriptRepository.ReplicationVersionSegment segment, List<String> images, String resolution) {
+        MyScriptRepository.ReplicationVersion version = repository.findReplicationVersion(segment.versionId())
+                .orElseThrow(() -> new IllegalArgumentException("剧集复刻版本不存在"));
+        MyScriptRepository.Episode episode = requireEpisode(version.episodeId());
+        MyScriptRepository.Project project = requireProject(episode.projectId());
+        List<MyScriptRepository.CharacterAsset> assets = repository.listCharacterAssets(project.id());
+        List<MyScriptRepository.ReplicationVersionAsset> versionAssets = repository.listReplicationVersionAssets(version.id());
+        List<String> references = new ArrayList<>();
+        List<MyScriptRepository.ReplicationVersionAsset> matchedVersionAssets = versionAssets.stream()
+                .filter(asset -> ("CHARACTER".equalsIgnoreCase(asset.assetType()) || "SUPPORTING_CHARACTER".equalsIgnoreCase(asset.assetType()))
+                        && segment.content() != null && segment.content().contains(asset.assetName())).toList();
+        for (MyScriptRepository.ReplicationVersionAsset asset : matchedVersionAssets) addImageSources(references, asset.imageSourcesJson());
+        if (matchedVersionAssets.isEmpty()) for (MyScriptRepository.ReplicationVersionAsset asset : versionAssets) {
+            if ("CHARACTER".equalsIgnoreCase(asset.assetType()) || "SUPPORTING_CHARACTER".equalsIgnoreCase(asset.assetType())) addImageSources(references, asset.imageSourcesJson());
+        }
+        if (references.isEmpty()) for (MyScriptRepository.CharacterAsset asset : assets) addImageSources(references, asset.imageSourcesJson());
+        if (references.isEmpty() && images != null) references.addAll(images);
+        if (references.isEmpty()) throw new IllegalStateException("请先在复刻页面角色资产区上传参考图");
+        EpisodeMaterial material = parseMaterial(version.materialJson());
+        String generationPrompt = buildGenerationPrompt(project.settings(), episode, segment.number(), segment.content(), material);
+        ComfyUiVideoView video = comfy.create(generationPrompt, Math.max(1, Math.min(MAX_REPLICATION_SEGMENT_SECONDS, segment.durationSeconds())), resolution, references);
+        MyScriptRepository.ReplicationVersionSegment running = new MyScriptRepository.ReplicationVersionSegment(
+                segment.id(), segment.versionId(), segment.number(), segment.content(), segment.durationSeconds(), "SUBMITTED",
+                video.id(), null, segment.createdAt(), Instant.now());
+        repository.saveReplicationVersionSegment(running);
+        syncArtifactsQuietly(project.id());
+        return segmentView(running, episode.id());
     }
 
     private String projectSettings(UUID id) { return repository.findProject(id).map(MyScriptRepository.Project::settings).orElse(""); }
@@ -671,18 +820,32 @@ public class MyScriptService {
     public record EpisodeMaterial(String charactersWardrobe, String environment, String plot, String continuity) {
         String asText() { return "人物与装束：" + charactersWardrobe + "\n环境与氛围：" + environment + "\n主要剧情：" + plot + "\n连续性：" + continuity; }
     }
-    public record ReplicationView(EpisodeMaterial episodeMaterial, List<SegmentView> segments) {}
+    public record ReplicationView(UUID versionId, int versionNumber, String status, EpisodeMaterial episodeMaterial,
+                                  List<SegmentView> segments, List<EpisodeAssetView> assets, Instant createdAt, Instant updatedAt) {}
+    public record ReplicationVersionSummaryView(UUID id, UUID episodeId, int versionNumber, String status,
+                                                int segmentCount, int assetCount, Instant createdAt, Instant updatedAt) {}
     private EpisodeMaterial materialFor(MyScriptRepository.Episode episode) {
         return repository.findReplicationMaterial(episode.id()).map(this::parseMaterial).orElseGet(() -> fallbackMaterial(episode));
     }
-    private ReplicationView replicationView(UUID episodeId, List<MyScriptRepository.Segment> segments) {
-        MyScriptRepository.Episode episode = requireEpisode(episodeId);
-        EpisodeMaterial material = materialFor(episode);
-        if (repository.findReplicationMaterial(episodeId).isEmpty()) {
-            saveMaterial(episodeId, material);
-            syncArtifactsQuietly(episode.projectId());
-        }
-        return new ReplicationView(material, segments.stream().map(this::segmentView).toList());
+    private ReplicationView replicationView(MyScriptRepository.ReplicationVersion version) {
+        EpisodeMaterial material = parseMaterial(version.materialJson());
+        List<SegmentView> segments = repository.listReplicationVersionSegments(version.id()).stream()
+                .map(segment -> segmentView(segment, version.episodeId())).toList();
+        List<EpisodeAssetView> assets = repository.listReplicationVersionAssets(version.id()).stream()
+                .map(this::replicationVersionAssetView).toList();
+        return new ReplicationView(version.id(), version.version(), version.status(), material, segments, assets,
+                version.createdAt(), version.updatedAt());
+    }
+    private ReplicationVersionSummaryView replicationVersionSummary(MyScriptRepository.ReplicationVersion version) {
+        return new ReplicationVersionSummaryView(version.id(), version.episodeId(), version.version(), version.status(),
+                repository.listReplicationVersionSegments(version.id()).size(),
+                repository.listReplicationVersionAssets(version.id()).size(), version.createdAt(), version.updatedAt());
+    }
+    private MyScriptRepository.ReplicationVersion latestReplicationVersion(UUID episodeId) {
+        return repository.listReplicationVersions(episodeId).stream().findFirst().orElse(null);
+    }
+    private EpisodeAssetView replicationVersionAssetView(MyScriptRepository.ReplicationVersionAsset a) {
+        return new EpisodeAssetView(a.id(), a.versionId(), a.assetType(), a.assetName(), a.prompt(), a.imageSourcesJson(), a.createdAt(), a.updatedAt());
     }
     private void saveMaterial(UUID episodeId, EpisodeMaterial material) {
         try { repository.saveReplicationMaterial(episodeId, mapper.writeValueAsString(material)); } catch (Exception error) { throw new IllegalStateException("保存本集复刻资料失败", error); }
@@ -709,7 +872,9 @@ public class MyScriptService {
             for (MyScriptRepository.Episode episode : repository.listEpisodes(project.id())) {
                 Path episodeDir = scriptEpisodeDirectory(project, episode.number());
                 Files.createDirectories(episodeDir);
-                writeUtf8(episodeDir.resolve("剧情内容.md"), "# " + episode.title() + "\n\n" + safeText(episode.content()));
+                writeUtf8(episodeDir.resolve("剧情内容.md"), "# 第" + episode.number() + "集 · " + episode.title()
+                        + "\n\n## 内容概述\n\n" + safeText(episode.summary())
+                        + "\n\n## 正文\n\n" + safeText(episode.content()));
                 for (MyScriptRepository.Prompt prompt : repository.listPrompts(episode.id())) {
                     String label = String.format("%02d-%s.md", prompt.version(), safeFileName(prompt.sourceLabel()));
                     writeUtf8(episodeDir.resolve("提示词").resolve(label), promptFileText(prompt));
@@ -733,6 +898,21 @@ public class MyScriptService {
                         writeUtf8(replicationDir.resolve("段落" + segment.number() + ".md"), safeText(segment.content()));
                     }
                     writeUtf8(replicationDir.resolve("复刻内容.md"), replication.toString());
+                }
+                for (MyScriptRepository.ReplicationVersion version : repository.listReplicationVersions(episode.id())) {
+                    Path versionDir = episodeDir.resolve("复刻").resolve(String.format("版本%02d", version.version()));
+                    StringBuilder versionText = new StringBuilder("# ").append(episode.title()).append(" 复刻版本 v").append(version.version()).append("\n\n")
+                            .append(materialFileText(version.materialJson())).append("\n\n");
+                    for (MyScriptRepository.ReplicationVersionSegment segment : repository.listReplicationVersionSegments(version.id())) {
+                        versionText.append("## 段落").append(segment.number()).append("\n\n").append(safeText(segment.content())).append("\n\n");
+                        writeUtf8(versionDir.resolve("段落" + segment.number() + ".md"), safeText(segment.content()));
+                    }
+                    for (MyScriptRepository.ReplicationVersionAsset asset : repository.listReplicationVersionAssets(version.id())) {
+                        Path assetDir = "ENVIRONMENT".equalsIgnoreCase(asset.assetType()) ? versionDir.resolve("环境") : versionDir.resolve("人物资产");
+                        writeUtf8(assetDir.resolve(safeFileName(asset.assetName()) + "-提示词.md"), safeText(asset.prompt()));
+                        writeImageSources(asset.imageSourcesJson(), assetDir, safeFileName(asset.assetName()));
+                    }
+                    writeUtf8(versionDir.resolve("复刻内容.md"), versionText.toString());
                 }
             }
             LOGGER.info("剧本文件资产已同步 projectId={} directory={}", project.id(), root);
@@ -799,19 +979,18 @@ public class MyScriptService {
                     project.id(), episode.id(), episode.number(), previous.size());
             String last = previous.isEmpty() ? "无" : previous.get(previous.size() - 1).content();
             String system = prompts.episodeInstructions("R2", "抖音", "9:16")
-                    + "\n你现在只创作第" + episode.number() + "集。必须承接已给剧本设定和上一集结尾，不要重复剧本设定；输出以【第" + episode.number() + "集】开始，使用通俗现代汉语给出完整连贯的故事正文，不要写分镜、镜头、运镜、时长或视频制作说明。对白只用中文双引号标记，不添加字幕要求。";
+                    + episodeOutputContract(episode.number())
+                    + "\n你现在只创作第" + episode.number() + "集。必须承接已给剧本设定和上一集结尾，不要重复剧本设定；正文使用通俗现代汉语，情节完整连贯，不要写分镜、镜头、运镜、时长或视频制作说明。对白只用中文双引号标记，不添加字幕要求。";
             String user = "【剧本设定】\n" + project.settings() + "\n【上一集】\n" + last;
             prompt = newPrompt(episode.id(), "SYSTEM", "系统推演", null, system, user);
             repository.savePrompt(prompt);
             prompt = updatePrompt(prompt, "RUNNING", null, null);
-            String content = extractText(geminiClient.call("我的剧本/续写", system, user, apiKey));
-            content = content.replaceFirst("(?s)^.*?【第\\s*" + episode.number() + "\\s*集[^】]*】", "").trim();
-            if (content.isBlank()) throw new IllegalStateException("Gemini 未返回第" + episode.number() + "集正文");
-            updateEpisode(episode, "SUCCESS", "续写完成", content, null);
-            updatePrompt(prompt, "SUCCESS", content, null);
+            GeneratedEpisode generated = parseGeneratedEpisode(extractText(geminiClient.call("我的剧本/续写", system, user, apiKey)), episode.number());
+            updateEpisodeContent(episode, "SUCCESS", "续写完成", generated, null);
+            updatePrompt(prompt, "SUCCESS", generated.formatted(), null);
             syncArtifactsQuietly(project.id());
             LOGGER.info("剧本续写完成 projectId={} episodeId={} episode={} durationMs={} contentChars={}",
-                    project.id(), episode.id(), episode.number(), elapsedMillis(startedNanos), content.length());
+                    project.id(), episode.id(), episode.number(), elapsedMillis(startedNanos), generated.content().length());
         } catch (Exception exception) {
             LOGGER.error("剧本续写失败 projectId={} episodeId={} episode={} durationMs={} reason={}",
                     project.id(), episode.id(), episode.number(), elapsedMillis(startedNanos), rootMessage(exception), exception);
@@ -829,7 +1008,7 @@ public class MyScriptService {
     }
 
     private ProjectView view(MyScriptRepository.Project p) { return new ProjectView(p.id(), p.title(), p.settings(), repository.listEpisodes(p.id()).stream().map(this::episodeView).toList(), p.createdAt(), p.updatedAt()); }
-    private EpisodeView episodeView(MyScriptRepository.Episode e) { return new EpisodeView(e.id(), e.projectId(), e.number(), e.title(), e.content(), e.status(), e.message(), e.error(), repository.listPrompts(e.id()).stream().map(this::promptView).toList(), e.createdAt(), e.updatedAt()); }
+    private EpisodeView episodeView(MyScriptRepository.Episode e) { return new EpisodeView(e.id(), e.projectId(), e.number(), e.title(), e.summary(), e.content(), e.status(), e.message(), e.error(), repository.listPrompts(e.id()).stream().map(this::promptView).toList(), repository.listReplicationVersions(e.id()).stream().map(this::replicationVersionSummary).toList(), e.createdAt(), e.updatedAt()); }
     private PromptView promptView(MyScriptRepository.Prompt p) { return new PromptView(p.id(), p.episodeId(), p.version(), p.sourceType(), p.sourceLabel(), p.idea(), p.promptText(), p.resultContent(), p.status(), p.error(), p.createdAt(), p.updatedAt()); }
     private MyScriptRepository.Prompt newPrompt(UUID episodeId, String sourceType, String sourceLabel, String idea, String system, String user) {
         int version = repository.listPrompts(episodeId).stream().mapToInt(MyScriptRepository.Prompt::version).max().orElse(0) + 1;
@@ -842,10 +1021,14 @@ public class MyScriptService {
         repository.savePrompt(changed); return changed;
     }
     private SegmentView segmentView(MyScriptRepository.Segment s) { return new SegmentView(s.id(), s.episodeId(), s.number(), s.content(), s.durationSeconds(), s.status(), s.comfyTaskId(), s.error(), s.createdAt(), s.updatedAt()); }
+    private SegmentView segmentView(MyScriptRepository.ReplicationVersionSegment s, UUID episodeId) { return new SegmentView(s.id(), episodeId, s.number(), s.content(), s.durationSeconds(), s.status(), s.comfyTaskId(), s.error(), s.createdAt(), s.updatedAt()); }
     private MyScriptRepository.Project requireProject(UUID id) { return repository.findProject(id).orElseThrow(() -> new IllegalArgumentException("剧本不存在")); }
     private MyScriptRepository.Episode requireEpisode(UUID id) { return repository.findEpisode(id).orElseThrow(() -> new IllegalArgumentException("剧集不存在")); }
     private MyScriptRepository.Segment requireSegment(UUID id) { return repository.findSegment(id).orElseThrow(() -> new IllegalArgumentException("复刻分段不存在")); }
-    private void updateEpisode(MyScriptRepository.Episode original, String status, String message, String content, String error) { repository.saveEpisode(new MyScriptRepository.Episode(original.id(), original.projectId(), original.number(), original.title(), content == null ? original.content() : content, status, message, error, original.createdAt(), Instant.now())); }
+    private void updateEpisode(MyScriptRepository.Episode original, String status, String message, String content, String error) { repository.saveEpisode(new MyScriptRepository.Episode(original.id(), original.projectId(), original.number(), original.title(), original.summary(), content == null ? original.content() : content, status, message, error, original.createdAt(), Instant.now())); }
+    private void updateEpisodeContent(MyScriptRepository.Episode original, String status, String message, GeneratedEpisode generated, String error) {
+        repository.saveEpisode(new MyScriptRepository.Episode(original.id(), original.projectId(), original.number(), generated.title(), generated.summary(), generated.content(), status, message, error, original.createdAt(), Instant.now()));
+    }
     private static ParsedScript parseInitial(String result, String source) { Matcher title = TITLE_MARKER.matcher(result); String name = title.find() ? title.group(1).trim() : fallbackTitle(source); Matcher settings = SETTINGS_MARKER.matcher(result); String set = settings.find() ? settings.group(1).trim() : result.trim(); return new ParsedScript(name, set, ""); }
     private static String fallbackTitle(String source) { String cleaned = source == null ? "未命名剧本" : source.replaceAll("\\s+", " ").trim(); return cleaned.isBlank() ? "未命名剧本" : cleaned.substring(0, Math.min(28, cleaned.length())); }
     private static List<String> splitEpisode(String content) { List<String> units = new ArrayList<>(); for (String piece : content.split("(?=【(?:场景|段落|镜头|第?\\d+段)|\\n\\s*\\n)")) { String trimmed = piece.trim(); if (!trimmed.isBlank()) units.add(trimmed); } if (units.size() >= 2) return units.size() > MAX_REPLICATION_SEGMENTS ? units.subList(0, MAX_REPLICATION_SEGMENTS) : units; List<String> chunks = new ArrayList<>(); StringBuilder current = new StringBuilder(); for (String sentence : content.split("(?<=[。！？!?])")) { if (current.length() + sentence.length() > 420 && !current.isEmpty()) { chunks.add(current.toString().trim()); current.setLength(0); } current.append(sentence); } if (!current.isEmpty()) chunks.add(current.toString().trim()); return chunks.isEmpty() ? List.of(content) : chunks.size() > MAX_REPLICATION_SEGMENTS ? chunks.subList(0, MAX_REPLICATION_SEGMENTS) : chunks; }
@@ -868,13 +1051,16 @@ public class MyScriptService {
     private static String rootMessage(Throwable error) { Throwable current = error; while (current.getCause() != null) current = current.getCause(); return current.getMessage() == null ? current.toString() : current.getMessage(); }
     private record ParsedScript(String title, String settings, String firstEpisode) {}
     public record ProjectView(UUID id, String title, String settings, List<EpisodeView> episodes, Instant createdAt, Instant updatedAt) {}
-    public record EpisodeView(UUID id, UUID projectId, int number, String title, String content, String status, String message, String error, List<PromptView> prompts, Instant createdAt, Instant updatedAt) {}
+    public record EpisodeView(UUID id, UUID projectId, int number, String title, String summary, String content, String status, String message, String error, List<PromptView> prompts, List<ReplicationVersionSummaryView> replicationVersions, Instant createdAt, Instant updatedAt) {}
     public record PromptView(UUID id, UUID episodeId, int version, String sourceType, String sourceLabel, String idea, String promptText, String resultContent, String status, String error, Instant createdAt, Instant updatedAt) {}
     public record SegmentView(UUID id, UUID episodeId, int number, String content, int durationSeconds, String status, UUID comfyTaskId, String error, Instant createdAt, Instant updatedAt) {}
     public record CharacterView(UUID id, UUID projectId, String characterName, String roleLevel, String anchor, String imageSourcesJson, int sortOrder, Instant createdAt, Instant updatedAt) {}
     public record EpisodeAssetView(UUID id, UUID episodeId, String assetType, String assetName, String prompt, String imageSourcesJson, Instant createdAt, Instant updatedAt) {}
     public record CharacterRequest(String characterName, String roleLevel, String anchor, String imageSourcesJson) {}
     private record CharacterPrompt(String name, String prompt) {}
+    private record GeneratedEpisode(String title, String summary, String content) {
+        private String formatted() { return "【本集标题】" + title + "\n【内容概述】" + summary + "\n【正文】\n" + content; }
+    }
     private CharacterView characterView(MyScriptRepository.CharacterAsset a) { return new CharacterView(a.id(), a.projectId(), a.characterName(), a.roleLevel(), a.anchor(), a.imageSourcesJson(), a.sortOrder(), a.createdAt(), a.updatedAt()); }
     private EpisodeAssetView episodeAssetView(MyScriptRepository.EpisodeAsset a) { return new EpisodeAssetView(a.id(), a.episodeId(), a.assetType(), a.assetName(), a.prompt(), a.imageSourcesJson(), a.createdAt(), a.updatedAt()); }
 }

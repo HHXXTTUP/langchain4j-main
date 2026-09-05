@@ -13,9 +13,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,12 +29,21 @@ public class QwenVideoScriptController {
     private final QwenVideoScriptService service;
     public QwenVideoScriptController(QwenVideoScriptService service) { this.service = service; }
 
-    @PostMapping
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     ResponseEntity<QwenVideoScriptView> create(@RequestBody(required = false) CreateRequest request) {
         if (request == null) throw new IllegalArgumentException("address is required");
         LOGGER.info("千问视频脚本任务创建请求 parse={} addressPresent={}", request.shouldParse(),
                 request.address() != null && !request.address().isBlank());
         return ResponseEntity.accepted().body(service.create(request.address(), request.shouldParse()));
+    }
+
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    ResponseEntity<QwenVideoScriptView> upload(@RequestPart("video") MultipartFile video,
+                                                @RequestParam(value = "parse", defaultValue = "true") boolean parse) {
+        LOGGER.info("千问视频脚本本地上传请求 parse={} file={} size={} contentType={}", parse,
+                video == null ? null : video.getOriginalFilename(), video == null ? 0 : video.getSize(),
+                video == null ? null : video.getContentType());
+        return ResponseEntity.accepted().body(service.create(video, parse));
     }
 
     @GetMapping

@@ -137,6 +137,10 @@ const gptImagesMessage = document.querySelector("#gpt-images-message");
 const gptImagesResult = document.querySelector("#gpt-images-result");
 const videoScriptForm = document.querySelector("#video-script-form");
 const videoScriptAddress = document.querySelector("#video-script-address");
+const videoScriptAddressWrap = document.querySelector("#video-script-address-wrap");
+const videoScriptFile = document.querySelector("#video-script-file");
+const videoScriptFileWrap = document.querySelector("#video-script-file-wrap");
+const videoScriptSourceOptions = document.querySelectorAll("input[name='video-script-source']");
 const videoScriptSubmit = document.querySelector("#video-script-submit");
 const videoScriptDownload = document.querySelector("#video-script-download");
 const videoScriptMessage = document.querySelector("#video-script-message");
@@ -182,8 +186,12 @@ const accountEditor = document.querySelector("#account-editor");
 const accountEditorForm = document.querySelector("#account-editor-form");
 const accountEditorFields = document.querySelector("#account-editor-fields");
 const accountMenuGrid = document.querySelector("#account-menu-grid");
+const menuConfigList = document.querySelector("#menu-config-list");
+const menuConfigMessage = document.querySelector("#menu-settings-message");
+const saveMenuConfigButton = document.querySelector("#save-menu-config");
 let currentAccountSession = null;
 let accountRows = [];
+let menuConfigRows = [];
 let canvasZoom = 1;
 let canvasPortSelection = null;
 let canvasDragState = null;
@@ -242,6 +250,7 @@ let selectedComfyUiFiles = [];
 let myScripts = [];
 let selectedMyScriptId = null;
 let selectedMyScriptEpisodeId = null;
+let selectedMyScriptReplicationVersionId = null;
 let selectedMyScriptSection = "settings";
 const expandedMyScriptProjects = new Set();
 const loadingReplicationEpisodes = new Set();
@@ -261,6 +270,7 @@ window.addEventListener("hashchange", () => authorizeAndActivateView(normalizeVi
 if (logoutButton) logoutButton.addEventListener("click", logoutAccount);
 if (createAccountButton) createAccountButton.addEventListener("click", () => openAccountEditor());
 if (packageApplicationButton) packageApplicationButton.addEventListener("click", packageApplication);
+if (saveMenuConfigButton) saveMenuConfigButton.addEventListener("click", saveMenuConfig);
 if (selfSettingsForm) selfSettingsForm.addEventListener("submit", saveSelfSettings);
 if (accountEditorForm) accountEditorForm.addEventListener("submit", saveAccountEditor);
 document.querySelectorAll("[data-account-close]").forEach(button => button.addEventListener("click", () => accountEditor?.close()));
@@ -307,6 +317,8 @@ if (auditRedrawImage) auditRedrawImage.addEventListener("change", () => previewD
 if (gptImagesForm) gptImagesForm.addEventListener("submit", submitGptImages);
 if (videoScriptForm) videoScriptForm.addEventListener("submit", submitVideoScript);
 if (videoScriptDownload) videoScriptDownload.addEventListener("click", () => submitVideoScriptTask(false));
+videoScriptSourceOptions.forEach((option) => option.addEventListener("change", syncVideoScriptSource));
+syncVideoScriptSource();
 videoScriptTabs.forEach((tab) => tab.addEventListener("click", () => activateVideoScriptTab(tab.dataset.videoScriptTab)));
 if (refreshVideoScripts) refreshVideoScripts.addEventListener("click", loadVideoScripts);
 if (shortDramaDirectorForm) shortDramaDirectorForm.addEventListener("submit", submitShortDramaDirector);
@@ -2602,12 +2614,13 @@ function renderMyScripts() {
             const children = document.createElement("div"); children.className = "my-script-tree-children";
             const settingsChild = document.createElement("button"); settingsChild.type = "button"; settingsChild.className = `my-script-tree-episode my-script-tree-settings ${selectedMyScriptSection === "settings" && project.id === selectedMyScriptId ? "is-selected" : ""}`;
             settingsChild.textContent = "剧本设定";
-            settingsChild.addEventListener("click", event => { event.stopPropagation(); selectedMyScriptId = project.id; selectedMyScriptSection = "settings"; selectedMyScriptEpisodeId = null; expandedMyScriptProjects.add(project.id); renderMyScripts(); });
+            settingsChild.addEventListener("click", event => { event.stopPropagation(); selectedMyScriptId = project.id; selectedMyScriptSection = "settings"; selectedMyScriptEpisodeId = null; selectedMyScriptReplicationVersionId = null; expandedMyScriptProjects.add(project.id); renderMyScripts(); });
             children.append(settingsChild);
             (project.episodes || []).forEach(episode => {
                 const child = document.createElement("button"); child.type = "button"; child.className = `my-script-tree-episode ${selectedMyScriptSection === episode.id || episode.id === selectedMyScriptEpisodeId ? "is-selected" : ""}`;
-                child.textContent = `${episode.title || `第${episode.number}集`} · ${shortDramaStatusLabel(episode.status)}`;
-                child.addEventListener("click", event => { event.stopPropagation(); selectedMyScriptId = project.id; selectedMyScriptEpisodeId = episode.id; selectedMyScriptSection = episode.id; expandedMyScriptProjects.add(project.id); renderMyScripts(); }); children.append(child);
+                const defaultTitle = `第${episode.number}集`; const episodeTitle = episode.title && episode.title !== defaultTitle ? `${defaultTitle} · ${episode.title}` : defaultTitle;
+                child.textContent = `${episodeTitle} · ${shortDramaStatusLabel(episode.status)}`;
+                child.addEventListener("click", event => { event.stopPropagation(); selectedMyScriptId = project.id; selectedMyScriptEpisodeId = episode.id; selectedMyScriptReplicationVersionId = null; selectedMyScriptSection = episode.id; expandedMyScriptProjects.add(project.id); renderMyScripts(); }); children.append(child);
             }); group.append(children);
         }
         myScriptList.append(group);
@@ -2676,10 +2689,14 @@ function renderMyScriptDetail(project) {
     if (!selected) return;
     myScriptDetail.append(title);
     const episodeHeading = document.createElement("div"); episodeHeading.className = "my-script-selected-episode-heading";
-    const episodeLabel = document.createElement("h4"); episodeLabel.textContent = `${selected.title || `第${selected.number}集`} · ${shortDramaStatusLabel(selected.status)}`; episodeHeading.append(episodeLabel); myScriptDetail.append(episodeHeading);
+    const defaultTitle = `第${selected.number}集`; const displayTitle = selected.title && selected.title !== defaultTitle ? `${defaultTitle} · ${selected.title}` : defaultTitle;
+    const episodeLabel = document.createElement("h4"); episodeLabel.textContent = `${displayTitle} · ${shortDramaStatusLabel(selected.status)}`; episodeHeading.append(episodeLabel); myScriptDetail.append(episodeHeading);
     const message = document.createElement("p"); message.className = "short-drama-result-message"; message.textContent = selected.error || selected.message || "";
+    const summary = document.createElement("section"); summary.className = "my-script-episode-summary"; summary.hidden = !selected.summary;
+    const summaryLabel = document.createElement("strong"); summaryLabel.textContent = "本集概述";
+    const summaryText = document.createElement("p"); summaryText.textContent = selected.summary || ""; summary.append(summaryLabel, summaryText);
     const content = document.createElement("div"); content.className = "my-script-episode-content"; content.textContent = selected.content || "该集正在生成，请稍后刷新。";
-    const replicate = document.createElement("button"); replicate.type = "button"; replicate.textContent = "剧本翻拍"; replicate.disabled = !selected.content; replicate.addEventListener("click", () => openScriptReplication(selected.id));
+    const replicate = document.createElement("button"); replicate.type = "button"; replicate.textContent = "剧本翻拍"; replicate.disabled = !selected.content; replicate.addEventListener("click", () => openScriptReplication(selected.id, replicate));
     const rewrite = document.createElement("button"); rewrite.type = "button"; rewrite.textContent = "重写本集"; rewrite.disabled = !selected.content || ["QUEUED", "RUNNING"].includes(selected.status);
     const rewritePanel = document.createElement("div"); rewritePanel.className = "my-script-rewrite-panel"; rewritePanel.hidden = true;
     const rewriteLabel = document.createElement("label"); rewriteLabel.textContent = "告诉导演你希望如何修改这一集";
@@ -2690,8 +2707,9 @@ function renderMyScriptDetail(project) {
     rewriteActions.append(cancelRewrite, submitRewrite); rewritePanel.append(rewriteLabel, rewriteActions);
     rewrite.addEventListener("click", () => { rewritePanel.hidden = false; rewriteIdea.focus(); });
     const episodeActions = document.createElement("div"); episodeActions.className = "my-script-episode-actions"; episodeActions.append(replicate, rewrite);
-    myScriptDetail.append(message, content, episodeActions, rewritePanel);
+    myScriptDetail.append(message, summary, content, episodeActions, rewritePanel);
     renderMyScriptPromptHistory(selected, project, myScriptDetail);
+    renderMyScriptReplicationHistory(selected, myScriptDetail);
 }
 
 function renderMyScriptPromptHistory(episode, project, container) {
@@ -2711,6 +2729,27 @@ function renderMyScriptPromptHistory(episode, project, container) {
         const status = document.createElement("td"); status.textContent = shortDramaStatusLabel(prompt.status);
         const actions = document.createElement("td"); const rewrite = document.createElement("button"); rewrite.type = "button"; rewrite.textContent = "重写再生成"; rewrite.disabled = ["QUEUED", "RUNNING"].includes(episode.status) || prompt.status === "QUEUED" || prompt.status === "RUNNING"; rewrite.addEventListener("click", () => showPromptRewriteEditor(episode, prompt, project, rewrite)); actions.append(rewrite);
         row.append(version, source, promptCell, result, status, actions); body.append(row);
+    });
+    table.append(body); wrap.append(table); container.append(wrap);
+}
+
+function renderMyScriptReplicationHistory(episode, container) {
+    const heading = document.createElement("h4"); heading.textContent = "剧集复刻版本"; container.append(heading);
+    const versions = Array.isArray(episode.replicationVersions) ? episode.replicationVersions : [];
+    if (!versions.length) { const empty = document.createElement("p"); empty.className = "knowledge-empty"; empty.textContent = "暂无复刻版本。点击“剧本翻拍”后会创建并保存第一版。"; container.append(empty); return; }
+    const wrap = document.createElement("div"); wrap.className = "my-script-prompt-table-wrap";
+    const table = document.createElement("table"); table.className = "my-script-prompt-table";
+    const head = document.createElement("thead"); const tr = document.createElement("tr"); ["版本", "创建时间", "段落", "资产", "状态", "操作"].forEach(label => { const th = document.createElement("th"); th.textContent = label; tr.append(th); }); head.append(tr); table.append(head);
+    const body = document.createElement("tbody");
+    versions.forEach(version => {
+        const row = document.createElement("tr");
+        const number = document.createElement("td"); number.textContent = `复刻 v${version.versionNumber}`;
+        const created = document.createElement("td"); created.textContent = version.createdAt ? new Date(version.createdAt).toLocaleString() : "-";
+        const segments = document.createElement("td"); segments.textContent = `${version.segmentCount || 0} 段`;
+        const assets = document.createElement("td"); assets.textContent = `${version.assetCount || 0} 项`;
+        const status = document.createElement("td"); status.textContent = version.status || "已保存";
+        const action = document.createElement("td"); const detail = document.createElement("button"); detail.type = "button"; detail.textContent = "查看详情"; detail.addEventListener("click", () => openScriptReplicationVersion(version.id, episode.id)); action.append(detail);
+        row.append(number, created, segments, assets, status, action); body.append(row);
     });
     table.append(body); wrap.append(table); container.append(wrap);
 }
@@ -2759,30 +2798,46 @@ async function pollMyScriptEpisode(projectId, episodeId) {
     }
 }
 
-async function openScriptReplication(episodeId) {
-    selectedMyScriptEpisodeId = episodeId;
-    await authorizeAndActivateView("script-replication", true);
-    loadScriptReplication(episodeId);
-}
-
-async function loadScriptReplication(episodeId) {
-    if (!scriptReplicationContent || !episodeId) return;
-    if (loadingReplicationEpisodes.has(episodeId)) return;
-    loadingReplicationEpisodes.add(episodeId);
+async function openScriptReplication(episodeId, trigger = null) {
+    if (trigger) trigger.disabled = true;
     try {
         const response = await fetch(`/api/my-scripts/episodes/${episodeId}/replication-segments`, {method: "POST"});
         const payload = await readJson(response);
-        if (!response.ok) throw new Error(payload.message || "拆分复刻任务失败");
+        if (!response.ok) throw new Error(payload.message || "创建剧本复刻版本失败");
+        selectedMyScriptEpisodeId = episodeId;
+        selectedMyScriptReplicationVersionId = payload.versionId || null;
+        await authorizeAndActivateView("script-replication", true);
+    } catch (error) { window.alert(error.message || "创建剧本复刻版本失败"); }
+    finally { if (trigger) trigger.disabled = false; }
+}
+
+async function openScriptReplicationVersion(versionId, episodeId) {
+    selectedMyScriptEpisodeId = episodeId;
+    selectedMyScriptReplicationVersionId = versionId;
+    await authorizeAndActivateView("script-replication", true);
+}
+
+async function loadScriptReplication(episodeId, versionId = selectedMyScriptReplicationVersionId) {
+    if (!scriptReplicationContent || !episodeId) return;
+    const loadingKey = `${episodeId}:${versionId || "current"}`;
+    if (loadingReplicationEpisodes.has(loadingKey)) return;
+    loadingReplicationEpisodes.add(loadingKey);
+    try {
+        const endpoint = versionId ? `/api/my-scripts/replication-versions/${versionId}` : `/api/my-scripts/episodes/${episodeId}/replication-current`;
+        const response = await fetch(endpoint, {cache: "no-store"});
+        const payload = await readJson(response);
+        if (!response.ok) throw new Error(payload.message || "读取剧本复刻版本失败");
+        selectedMyScriptReplicationVersionId = payload.versionId || versionId || null;
         const episode = myScripts.flatMap(item => item.episodes || []).find(item => item.id === episodeId);
         const charactersResponse = episode ? await fetch(`/api/my-scripts/${episode.projectId}/characters`, {cache: "no-store"}) : null;
         const characters = charactersResponse ? await readJson(charactersResponse) : [];
         if (charactersResponse && !charactersResponse.ok) throw new Error(characters.message || "读取角色资产失败");
-        const episodeAssetsResponse = episode ? await fetch(`/api/my-scripts/episodes/${episodeId}/assets`, {cache: "no-store"}) : null;
-        const episodeAssets = episodeAssetsResponse ? await readJson(episodeAssetsResponse) : [];
+        const episodeAssetsResponse = (!Array.isArray(payload.assets) || !payload.assets.length) && episode ? await fetch(`/api/my-scripts/episodes/${episodeId}/assets`, {cache: "no-store"}) : null;
+        const episodeAssets = Array.isArray(payload.assets) && payload.assets.length ? payload.assets : (episodeAssetsResponse ? await readJson(episodeAssetsResponse) : []);
         if (episodeAssetsResponse && !episodeAssetsResponse.ok) throw new Error(episodeAssets.message || "读取剧集资产失败");
         scriptReplicationEmpty.hidden = true; scriptReplicationContent.hidden = false; renderScriptReplication(Array.isArray(payload.segments) ? payload.segments : [], Array.isArray(characters) ? characters : [], episode, payload.episodeMaterial || null, Array.isArray(episodeAssets) ? episodeAssets : []);
     } catch (error) { scriptReplicationEmpty.hidden = false; scriptReplicationEmpty.textContent = error.message || "加载剧本复刻失败"; scriptReplicationContent.hidden = true; }
-    finally { loadingReplicationEpisodes.delete(episodeId); }
+    finally { loadingReplicationEpisodes.delete(loadingKey); }
 }
 
 function isPlaceholderCharacterName(value) { return /^(男主|女主|角色|人物|女子|男子)[一二三四五六七八九十\d]*$/i.test(String(value || "").trim()); }
@@ -2807,7 +2862,7 @@ function renderScriptReplication(segments, assets, episode, episodeMaterial = nu
     scriptReplicationContent.replaceChildren();
     const project = myScripts.find(item => item.id === episode?.projectId);
     const heading = document.createElement("div"); heading.className = "replication-flow-heading";
-    const title = document.createElement("h3"); title.textContent = `${episode?.title || "当前剧集"} · 视频复刻流程`;
+    const title = document.createElement("h3"); title.textContent = `${episode?.title || "当前剧集"} · 视频复刻流程${selectedMyScriptReplicationVersionId ? ` · v${(episode?.replicationVersions || []).find(item => item.id === selectedMyScriptReplicationVersionId)?.versionNumber || "历史"}` : ""}`;
     const copy = document.createElement("p"); copy.textContent = "先锁定本集人物参考图，再逐段审核完整生成提示词。每段可重复生成，完成视频会保留在对应段落下方。"; heading.append(title, copy); scriptReplicationContent.append(heading);
 
     const materialPanel = document.createElement("section"); materialPanel.className = "replication-episode-material";
@@ -2906,7 +2961,7 @@ function renderScriptReplication(segments, assets, episode, episodeMaterial = nu
             const response = await fetch(`/api/my-scripts/episodes/${episode.id}/replication-segments/replan`, {method: "POST"});
             const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "重新整理失败");
             const project = myScripts.find(item => item.id === episode.projectId); const saved = await fetch(`/api/my-scripts/${episode.projectId}/characters`, {cache: "no-store"}); const savedEpisodeAssets = await fetch(`/api/my-scripts/episodes/${episode.id}/assets`, {cache: "no-store"});
-            renderScriptReplication(payload.segments || [], saved.ok ? await readJson(saved) : [], project?.episodes?.find(item => item.id === episode.id) || episode, payload.episodeMaterial || null, savedEpisodeAssets.ok ? await readJson(savedEpisodeAssets) : []);
+            renderScriptReplication(payload.segments || [], saved.ok ? await readJson(saved) : [], project?.episodes?.find(item => item.id === episode.id) || episode, payload.episodeMaterial || null, Array.isArray(payload.assets) ? payload.assets : (savedEpisodeAssets.ok ? await readJson(savedEpisodeAssets) : []));
         } catch (error) { window.alert(error.message || "重新整理失败"); }
         finally { replan.disabled = false; replan.textContent = "重新整理本集段落"; }
     });
@@ -2951,7 +3006,21 @@ async function pollScriptReplicationVideo(taskId, stateElement, button, output) 
 }
 
 function normalizeView(view) {
-    return ["workbench", "tasks", "video-canvas", "dialogue-extraction", "video-bgm", "direct-outfit", "audit-redraw", "gpt-images", "video-script", "short-drama-director", "my-scripts", "script-replication", "knowledge", "logs", "account-settings"].includes(view) ? view : "workbench";
+    return ["workbench", "tasks", "video-canvas", "dialogue-extraction", "video-bgm", "direct-outfit", "audit-redraw", "gpt-images", "video-script", "short-drama-director", "my-scripts", "script-replication", "knowledge", "logs", "account-settings", "menu-settings"].includes(view) ? view : "workbench";
+}
+
+function applyMenuOptions(options) {
+    const labels = new Map((options || []).map(option => [option.id, option.label]));
+    const order = new Map((options || []).map((option, index) => [option.id, index]));
+    navItems.forEach(item => {
+        const label = labels.get(item.dataset.view);
+        const target = [...item.children].find(child => child.tagName === "SPAN" && !child.classList.contains("nav-alert"));
+        if (target && label) target.textContent = label;
+    });
+    const nav = document.querySelector(".sidebar-nav");
+    if (nav) [...navItems]
+        .sort((a, b) => (order.get(a.dataset.view) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.dataset.view) ?? Number.MAX_SAFE_INTEGER))
+        .forEach(item => nav.append(item));
 }
 
 async function initializeAccountSession() {
@@ -2960,6 +3029,7 @@ async function initializeAccountSession() {
         if (!response.ok) { location.replace("/login.html"); return; }
         currentAccountSession = await readJson(response);
         if (sessionUsername) sessionUsername.textContent = `${currentAccountSession.username}${currentAccountSession.administrator ? " · 管理员" : ""}`;
+        applyMenuOptions(currentAccountSession.menuOptions);
         const allowed = new Set(currentAccountSession.allowedMenus || []);
         navItems.forEach(item => { item.hidden = !allowed.has(item.dataset.view); });
         if (createAccountButton) createAccountButton.hidden = !currentAccountSession.administrator;
@@ -3008,6 +3078,7 @@ function activateView(view, updateHash = false) {
         history.replaceState(null, "", `#${currentView}`);
     }
     if (currentView === "account-settings") loadAccountSettings();
+    if (currentView === "menu-settings") loadMenuConfig();
     if (currentView === "short-drama-director") loadShortDramaTasks();
     if (currentView === "my-scripts") loadMyScripts();
     if (currentView === "script-replication" && selectedMyScriptEpisodeId) loadScriptReplication(selectedMyScriptEpisodeId);
@@ -4154,6 +4225,57 @@ async function submitAuditRedraw(event) {
     } finally { if (auditRedrawSubmit) auditRedrawSubmit.disabled = false; }
 }
 
+async function loadMenuConfig() {
+    if (!menuConfigList || !currentAccountSession?.administrator) return;
+    menuConfigMessage.textContent = "正在读取菜单配置…";
+    try {
+        const response = await fetch("/api/accounts/menu-config", {cache: "no-store"});
+        const payload = await readJson(response);
+        if (!response.ok) throw new Error(payload.message || "读取菜单配置失败");
+        menuConfigRows = Array.isArray(payload) ? payload : [];
+        renderMenuConfig();
+        menuConfigMessage.textContent = "可改名、排序或停用菜单；账号权限仍按内部菜单标识保存。";
+    } catch (error) { menuConfigMessage.textContent = error.message || "读取菜单配置失败"; }
+}
+
+function renderMenuConfig() {
+    menuConfigList.replaceChildren();
+    if (!menuConfigRows.length) { const empty = document.createElement("p"); empty.className = "knowledge-empty"; empty.textContent = "暂无菜单配置"; menuConfigList.append(empty); return; }
+    menuConfigRows.forEach((item, index) => {
+        const row = document.createElement("div"); row.className = "menu-config-row"; row.dataset.menuId = item.id;
+        const order = document.createElement("span"); order.className = "menu-config-order"; order.textContent = String(index + 1).padStart(2, "0");
+        const label = document.createElement("input"); label.type = "text"; label.maxLength = 40; label.value = item.label || ""; label.setAttribute("aria-label", `${item.id} 菜单名称`);
+        const id = document.createElement("code"); id.textContent = item.id;
+        const enabledLabel = document.createElement("label"); enabledLabel.className = "account-check"; const enabled = document.createElement("input"); enabled.type = "checkbox"; enabled.checked = item.enabled !== false; enabled.disabled = item.id === "account-settings" || item.id === "menu-settings"; enabledLabel.append(enabled, document.createTextNode("启用"));
+        const actions = document.createElement("span"); actions.className = "menu-config-actions";
+        const up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = "上移"; up.disabled = index === 0; up.addEventListener("click", () => moveMenuRow(index, -1));
+        const down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = "下移"; down.disabled = index === menuConfigRows.length - 1; down.addEventListener("click", () => moveMenuRow(index, 1)); actions.append(up, down);
+        row.append(order, label, id, enabledLabel, actions); menuConfigList.append(row);
+    });
+}
+
+function moveMenuRow(index, delta) {
+    const target = index + delta; if (target < 0 || target >= menuConfigRows.length) return;
+    const [item] = menuConfigRows.splice(index, 1); menuConfigRows.splice(target, 0, item); renderMenuConfig();
+}
+
+async function saveMenuConfig() {
+    if (!currentAccountSession?.administrator || !saveMenuConfigButton) return;
+    const rows = [...menuConfigList.querySelectorAll(".menu-config-row")].map((row, index) => ({
+        id: row.dataset.menuId, label: row.querySelector('input[type="text"]').value.trim(), sortOrder: index,
+        enabled: row.querySelector('input[type="checkbox"]').checked
+    }));
+    saveMenuConfigButton.disabled = true; menuConfigMessage.textContent = "正在保存菜单配置…";
+    try {
+        const response = await fetch("/api/accounts/menu-config", {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(rows)});
+        const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "保存菜单配置失败");
+        menuConfigRows = Array.isArray(payload) ? payload : rows; renderMenuConfig();
+        const sessionResponse = await fetch("/api/auth/session", {cache: "no-store"}); if (sessionResponse.ok) { currentAccountSession = await sessionResponse.json(); applyMenuOptions(currentAccountSession.menuOptions); const allowed = new Set(currentAccountSession.allowedMenus || []); navItems.forEach(item => { item.hidden = !allowed.has(item.dataset.view); }); }
+        menuConfigMessage.textContent = "菜单配置已保存。";
+    } catch (error) { menuConfigMessage.textContent = error.message || "保存菜单配置失败"; }
+    finally { saveMenuConfigButton.disabled = false; }
+}
+
 async function submitGptImages(event) {
     event.preventDefault();
     const prompt = gptImagesPrompt?.value?.trim();
@@ -4218,22 +4340,37 @@ async function submitVideoScript(event) {
 }
 
 async function submitVideoScriptTask(parse) {
+    const source = document.querySelector("input[name='video-script-source']:checked")?.value || "url";
     const address = videoScriptAddress?.value?.trim();
-    if (!address) { if (videoScriptMessage) videoScriptMessage.textContent = "请输入视频地址"; return; }
+    const file = videoScriptFile?.files?.[0];
+    if (source === "upload" && !file) { if (videoScriptMessage) videoScriptMessage.textContent = "请选择视频文件"; return; }
+    if (source === "url" && !address) { if (videoScriptMessage) videoScriptMessage.textContent = "请输入视频地址"; return; }
     const button = parse ? videoScriptSubmit : videoScriptDownload;
     if (button) button.disabled = true;
-    if (videoScriptMessage) videoScriptMessage.textContent = parse ? "正在拉取并解析视频…" : "正在拉取视频…";
+    if (videoScriptMessage) videoScriptMessage.textContent = source === "upload"
+        ? (parse ? "正在上传并解析视频…" : "正在上传视频…")
+        : (parse ? "正在拉取并解析视频…" : "正在拉取视频…");
     try {
-        const response = await fetch("/api/qwen-video-scripts", {
-            method: "POST", headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({address, parse})
-        });
+        const request = source === "upload"
+            ? (() => { const body = new FormData(); body.append("video", file); body.append("parse", String(parse)); return {method: "POST", body}; })()
+            : {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({address, parse})};
+        const response = await fetch("/api/qwen-video-scripts", request);
         const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.message || "视频任务提交失败");
         renderVideoScript(payload); pollVideoScript(payload.id); loadVideoScripts();
     } catch (error) {
         if (videoScriptMessage) videoScriptMessage.textContent = error.message || "视频任务失败";
     } finally { if (button) button.disabled = false; }
+}
+
+function syncVideoScriptSource() {
+    const upload = document.querySelector("input[name='video-script-source']:checked")?.value === "upload";
+    if (videoScriptAddressWrap) videoScriptAddressWrap.hidden = upload;
+    if (videoScriptFileWrap) videoScriptFileWrap.hidden = !upload;
+    if (videoScriptAddress) videoScriptAddress.required = !upload;
+    if (videoScriptFile) videoScriptFile.required = upload;
+    if (!upload && videoScriptFile) videoScriptFile.value = "";
+    if (upload && videoScriptAddress) videoScriptAddress.value = "";
 }
 
 async function pollVideoScript(id) {
@@ -4261,7 +4398,7 @@ async function loadVideoScripts() {
         const items = await readJson(response);
         if (!response.ok) throw new Error(items.message || "读取视频列表失败");
         renderVideoScriptList(Array.isArray(items) ? items : []);
-        if (videoScriptListMessage) videoScriptListMessage.textContent = items.length ? `共 ${items.length} 条视频记录` : "暂无已拉取视频";
+        if (videoScriptListMessage) videoScriptListMessage.textContent = items.length ? `共 ${items.length} 条视频记录` : "暂无视频记录";
     } catch (error) {
         if (videoScriptListMessage) videoScriptListMessage.textContent = error.message || "读取视频列表失败";
     }
@@ -4269,10 +4406,10 @@ async function loadVideoScripts() {
 
 function renderVideoScriptList(items) {
     videoScriptList.replaceChildren();
-    if (!items.length) { const empty = document.createElement("p"); empty.className = "knowledge-empty"; empty.textContent = "暂无已拉取视频"; videoScriptList.append(empty); return; }
+    if (!items.length) { const empty = document.createElement("p"); empty.className = "knowledge-empty"; empty.textContent = "暂无视频记录"; videoScriptList.append(empty); return; }
     const table = document.createElement("table"); table.className = "video-script-table";
     const head = document.createElement("thead"); const headRow = document.createElement("tr");
-    ["视频", "地址", "状态", "信息", "操作"].forEach((label) => { const th = document.createElement("th"); th.textContent = label; headRow.append(th); });
+    ["视频", "来源", "状态", "信息", "操作"].forEach((label) => { const th = document.createElement("th"); th.textContent = label; headRow.append(th); });
     head.append(headRow); table.append(head);
     const body = document.createElement("tbody"); table.append(body);
     items.forEach((item) => {
@@ -4296,7 +4433,7 @@ function renderVideoScriptList(items) {
     videoScriptList.append(table);
 }
 
-function videoScriptStatusLabel(status) { return {QUEUED: "排队中", DOWNLOADING: "拉取中", DOWNLOADED: "已拉取", ANALYZING: "解析中", SUCCESS: "已完成", FAILED: "失败"}[status] || status || "未知"; }
+function videoScriptStatusLabel(status) { return {QUEUED: "排队中", DOWNLOADING: "准备中", DOWNLOADED: "已准备", ANALYZING: "解析中", SUCCESS: "已完成", FAILED: "失败"}[status] || status || "未知"; }
 
 async function generateVideoScript(id, button) {
     button.disabled = true;

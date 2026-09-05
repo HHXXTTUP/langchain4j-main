@@ -13,6 +13,14 @@ interface MyScriptRepository {
     void saveReplicationMaterial(UUID episodeId, String materialJson);
     void deleteReplicationMaterial(UUID episodeId);
     Optional<String> findReplicationMaterial(UUID episodeId);
+    void saveReplicationVersion(ReplicationVersion version);
+    void saveReplicationVersionSegment(ReplicationVersionSegment segment);
+    void saveReplicationVersionAsset(ReplicationVersionAsset asset);
+    Optional<ReplicationVersion> findReplicationVersion(UUID id);
+    List<ReplicationVersion> listReplicationVersions(UUID episodeId);
+    List<ReplicationVersionSegment> listReplicationVersionSegments(UUID versionId);
+    Optional<ReplicationVersionSegment> findReplicationVersionSegment(UUID id);
+    List<ReplicationVersionAsset> listReplicationVersionAssets(UUID versionId);
     void saveCharacterAsset(CharacterAsset asset);
     void saveEpisodeAsset(EpisodeAsset asset);
     void savePrompt(Prompt prompt);
@@ -28,7 +36,7 @@ interface MyScriptRepository {
     List<EpisodeAsset> listEpisodeAssets(UUID episodeId);
 
     record Project(UUID id, UUID sourceJobId, String title, String settings, Instant createdAt, Instant updatedAt) {}
-    record Episode(UUID id, UUID projectId, int number, String title, String content, String status,
+    record Episode(UUID id, UUID projectId, int number, String title, String summary, String content, String status,
                    String message, String error, Instant createdAt, Instant updatedAt) {}
     record Segment(UUID id, UUID episodeId, int number, String content, int durationSeconds, String status,
                    UUID comfyTaskId, String error, Instant createdAt, Instant updatedAt) {}
@@ -39,4 +47,10 @@ interface MyScriptRepository {
     record Prompt(UUID id, UUID episodeId, int version, String sourceType, String sourceLabel, String idea,
                   String promptText, String resultContent, String status, String error,
                   Instant createdAt, Instant updatedAt) {}
+    record ReplicationVersion(UUID id, UUID episodeId, int version, String status, String materialJson,
+                              Instant createdAt, Instant updatedAt) {}
+    record ReplicationVersionSegment(UUID id, UUID versionId, int number, String content, int durationSeconds,
+                                     String status, UUID comfyTaskId, String error, Instant createdAt, Instant updatedAt) {}
+    record ReplicationVersionAsset(UUID id, UUID versionId, String assetType, String assetName, String prompt,
+                                   String imageSourcesJson, Instant createdAt, Instant updatedAt) {}
 }

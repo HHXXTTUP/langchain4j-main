@@ -4,6 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Collections;
 
 public final class MenuCatalog {
     public static final Map<String, String> MENUS;
@@ -26,7 +27,8 @@ public final class MenuCatalog {
         menus.put("knowledge", "资料库");
         menus.put("logs", "日志");
         menus.put("account-settings", "账号配置");
-        MENUS = Map.copyOf(menus);
+        menus.put("menu-settings", "菜单配置");
+        MENUS = Collections.unmodifiableMap(menus);
         ALL = MENUS.keySet();
     }
 

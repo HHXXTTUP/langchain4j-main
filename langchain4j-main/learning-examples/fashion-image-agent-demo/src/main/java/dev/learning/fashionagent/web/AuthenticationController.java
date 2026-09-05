@@ -3,6 +3,7 @@ package dev.learning.fashionagent.web;
 import dev.learning.fashionagent.account.AccountService;
 import dev.learning.fashionagent.account.AccountService.Account;
 import dev.learning.fashionagent.account.MenuCatalog;
+import dev.learning.fashionagent.account.MenuConfigService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import java.time.Duration;
@@ -20,7 +21,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/auth")
 public class AuthenticationController {
     private final AccountService accounts;
-    public AuthenticationController(AccountService accounts) { this.accounts = accounts; }
+    private final MenuConfigService menus;
+    public AuthenticationController(AccountService accounts, MenuConfigService menus) { this.accounts = accounts; this.menus = menus; }
 
     @PostMapping("/login")
     ResponseEntity<?> login(@RequestBody LoginRequest request, HttpServletRequest servletRequest) {
@@ -38,7 +40,7 @@ public class AuthenticationController {
     @GetMapping("/authorize")
     ResponseEntity<?> authorize(@RequestParam String menu, HttpServletRequest request) {
         Account account = current(request);
-        if (!MenuCatalog.ALL.contains(menu) || !account.allows(menu)) {
+        if (!MenuCatalog.ALL.contains(menu) || !menus.enabled(menu) || !account.allows(menu)) {
             return ResponseEntity.status(403).body(Map.of("message", "当前账号没有该菜单权限"));
         }
         return ResponseEntity.ok(Map.of("allowed", true, "menu", menu));
@@ -57,8 +59,13 @@ public class AuthenticationController {
 
     private SessionView sessionView(Account account) {
         String username = account.administrator() ? account.username() : mask(account.username());
-        return new SessionView(account.id(), username, account.administrator(), account.expiresAt(),
-                account.administrator() ? MenuCatalog.ALL : account.allowedMenus(), MenuCatalog.options());
+        List<MenuConfigService.MenuOptionView> options = menus.options();
+        java.util.Set<String> enabled = options.stream().map(MenuConfigService.MenuOptionView::id).collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        java.util.Set<String> allowed = account.administrator() ? enabled : account.allowedMenus().stream()
+                .filter(enabled::contains)
+                .filter(id -> !"menu-settings".equals(id))
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        return new SessionView(account.id(), username, account.administrator(), account.expiresAt(), allowed, options);
     }
 
     private static String mask(String value) {
@@ -68,5 +75,5 @@ public class AuthenticationController {
 
     public record LoginRequest(String username, String password) {}
     public record SessionView(String id, String username, boolean administrator, java.time.Instant expiresAt,
-                              java.util.Set<String> allowedMenus, List<MenuCatalog.MenuOption> menuOptions) {}
+                              java.util.Set<String> allowedMenus, List<MenuConfigService.MenuOptionView> menuOptions) {}
 }

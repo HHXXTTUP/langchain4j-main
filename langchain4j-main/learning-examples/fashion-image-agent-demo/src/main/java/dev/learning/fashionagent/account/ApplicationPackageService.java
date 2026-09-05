@@ -17,7 +17,7 @@ public class ApplicationPackageService {
             @echo off
             setlocal
             cd /d "%~dp0"
-            start "Atelier Flow Server" /min java -jar atelier-flow.jar
+            start "阿睿工作台服务" /min java -jar atelier-flow.jar
             powershell -NoProfile -ExecutionPolicy Bypass -Command "$deadline=(Get-Date).AddMinutes(2); do { try { $response=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8088/login.html' -TimeoutSec 2; if ($response.StatusCode -eq 200) { exit 0 } } catch {}; Start-Sleep -Milliseconds 700 } while ((Get-Date) -lt $deadline); exit 1"
             if errorlevel 1 (
               echo Application startup timed out. Check the server window for details.

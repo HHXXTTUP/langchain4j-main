@@ -240,7 +240,13 @@ public class AccountService implements ApplicationRunner {
 
     private Set<String> normalizeMenus(Set<String> menus) {
         Set<String> result = new LinkedHashSet<>();
-        if (menus != null) menus.stream().filter(MenuCatalog.ALL::contains).forEach(result::add);
+        if (menus != null) {
+            menus.stream()
+                    .filter(MenuCatalog.ALL::contains)
+                    // Menu configuration is an administrator-only control surface.
+                    .filter(menu -> !"menu-settings".equals(menu))
+                    .forEach(result::add);
+        }
         result.add("account-settings");
         return result;
     }
@@ -275,7 +281,7 @@ public class AccountService implements ApplicationRunner {
     public record Account(String id, String username, String passwordHash, boolean administrator, boolean enabled,
                           Instant expiresAt, Set<String> allowedMenus) {
         public boolean expired() { return expiresAt != null && !expiresAt.isAfter(Instant.now()); }
-        public boolean allows(String menu) { return administrator || allowedMenus.contains(menu); }
+        public boolean allows(String menu) { return administrator || (!"menu-settings".equals(menu) && allowedMenus.contains(menu)); }
     }
     public record AccountView(String id, String username, String passwordDisplay, boolean administrator,
                               boolean enabled, Instant expiresAt, boolean expired, Set<String> allowedMenus,

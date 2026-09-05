@@ -36,7 +36,7 @@ public class NativeDirectoryPicker {
         try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); }
         catch (Exception ignored) {}
         JFileChooser chooser = new JFileChooser(resolveInitialDirectory(initialDirectory));
-        chooser.setDialogTitle("选择 Atelier Flow 文件夹");
+        chooser.setDialogTitle("选择阿睿工作台文件夹");
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         chooser.setAcceptAllFileFilterUsed(false);
         chooser.setMultiSelectionEnabled(false);

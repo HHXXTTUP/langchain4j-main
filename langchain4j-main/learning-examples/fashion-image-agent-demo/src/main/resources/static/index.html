@@ -4,15 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="由确定性工作流和 LangChain4j 多模态 AI 协作完成的人像生成与智能换装工具">
-    <title>Atelier Flow · AI 智能换装</title>
-    <link rel="stylesheet" href="/style.css?v=20260902-replication-material">
+    <title>阿睿工作台 · AI多媒体平台</title>
+    <link rel="stylesheet" href="/style.css?v=20260904-brand-menu">
 </head>
 <body>
 <div class="app-shell">
 <aside class="sidebar" aria-label="主菜单">
-    <a class="brand" href="#workbench" aria-label="Atelier Flow 工作台">
-        <span class="brand-mark">AF</span>
-        <span class="brand-copy"><strong>Atelier Flow</strong><small>AI Production Studio</small></span>
+    <a class="brand" href="#workbench" aria-label="阿睿工作台">
+        <span class="brand-mark">AR</span>
+        <span class="brand-copy"><strong>阿睿工作台</strong><small>AI多媒体平台</small></span>
     </a>
     <nav class="sidebar-nav">
         <button class="nav-item is-active" type="button" data-view="workbench" aria-current="page">
@@ -58,6 +58,9 @@
         </button>
         <button class="nav-item" type="button" data-view="account-settings">
             <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/><path d="M19 3v4M17 5h4"/></svg><span>账号配置</span>
+        </button>
+        <button class="nav-item" type="button" data-view="menu-settings">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/><circle cx="8" cy="7" r="1"/><circle cx="8" cy="12" r="1"/><circle cx="8" cy="17" r="1"/></svg><span>菜单配置</span>
         </button>
     </nav>
     <div class="sidebar-status">
@@ -296,6 +299,7 @@
         <div id="audit-redraw-result" class="direct-outfit-result" hidden></div>
     </section>
 
+
     <section class="direct-outfit-studio view-panel" data-view-panel="gpt-images" aria-labelledby="gpt-images-title" hidden>
         <div class="knowledge-heading"><div><p class="eyebrow">GPT IMAGE 2</p><h2 id="gpt-images-title">GPT 文生图</h2></div><span class="video-api-badge">OpenAI Images API</span></div>
         <form id="gpt-images-form" class="direct-outfit-form"><label>图片提示词<textarea id="gpt-images-prompt" rows="8" placeholder="例如：白底人物设定图，正面全身，写实影视风格，人物名称写在图片下方"></textarea></label><div class="standalone-video-submit-row"><button id="gpt-images-submit" type="submit">生成图片</button><span id="gpt-images-message" class="video-import-status">支持文生图，结果可查看和下载。</span></div></form>
@@ -307,17 +311,23 @@
             <div><p class="eyebrow">QWEN VIDEO SCRIPT</p><h2 id="video-script-title">视频脚本</h2></div>
             <span class="video-api-badge">通义千问 · 多模态分析</span>
         </div>
-        <p class="intro-copy">输入视频地址，系统会先通过 SnapAny 下载视频，再交给千问生成可复刻的影视脚本。人物服装与样貌不在文案中描述，按上传参考图保持一致。</p>
+        <p class="intro-copy">可粘贴视频地址，或直接上传本地视频交给千问生成可复刻的影视脚本。人物服装与样貌不在文案中描述，按上传参考图保持一致。</p>
         <div class="video-script-tabs" role="tablist" aria-label="视频脚本视图">
             <button class="is-active" type="button" role="tab" aria-selected="true" data-video-script-tab="submit">提交任务</button>
             <button type="button" role="tab" aria-selected="false" data-video-script-tab="list">列表查询</button>
         </div>
         <div data-video-script-panel="submit">
             <form id="video-script-form" class="story-url-form">
-                <label>视频地址<textarea id="video-script-address" rows="3" placeholder="粘贴视频地址"></textarea></label>
+                <fieldset class="video-script-source-picker">
+                    <legend>视频来源</legend>
+                    <label class="video-script-source-option"><input type="radio" name="video-script-source" value="url" checked> 视频地址</label>
+                    <label class="video-script-source-option"><input type="radio" name="video-script-source" value="upload"> 本地上传</label>
+                </fieldset>
+                <label id="video-script-address-wrap">视频地址<textarea id="video-script-address" rows="3" placeholder="粘贴视频地址"></textarea></label>
+                <label id="video-script-file-wrap" hidden>视频文件<input id="video-script-file" type="file" accept="video/*,.mp4,.mov,.webm,.m4v,.mkv,.avi"></label>
                 <div class="standalone-video-submit-row">
-                    <button id="video-script-download" type="button">只拉取视频</button>
-                    <button id="video-script-submit" type="submit">拉取并解析</button>
+                    <button id="video-script-download" type="button">只准备视频</button>
+                    <button id="video-script-submit" type="submit">准备并解析</button>
                     <span id="video-script-message" class="video-import-status"></span>
                 </div>
             </form>
@@ -375,6 +385,12 @@
         <form id="self-settings-form" class="account-settings-form" hidden>
             <h3>我的模型 Key 与文件目录</h3><div id="self-settings-fields" class="account-field-grid"></div><button type="submit">保存我的配置</button>
         </form>
+    </section>
+
+    <section class="account-settings-studio view-panel" data-view-panel="menu-settings" aria-labelledby="menu-settings-title" hidden>
+        <div class="knowledge-heading"><div><p class="eyebrow">MENU CONTROL</p><h2 id="menu-settings-title">菜单配置</h2></div><button id="save-menu-config" type="button">保存菜单</button></div>
+        <p id="menu-settings-message" class="video-catalog-status">正在读取菜单配置…</p>
+        <div id="menu-config-list" class="menu-config-list"></div>
     </section>
 
     <dialog id="account-editor" class="account-editor">
@@ -700,6 +716,6 @@
     </div>
 </div>
 
-<script src="/app.js?v=20260902-replication-material" defer></script>
+<script src="/app.js?v=20260904-brand-menu" defer></script>
 </body>
 </html>

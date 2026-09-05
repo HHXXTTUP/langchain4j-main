@@ -34,6 +34,9 @@ public class MyScriptController {
     }
     @GetMapping("/{id}/characters") List<CharacterView> characters(@PathVariable UUID id) { return service.characters(id); }
     @GetMapping("/episodes/{id}/assets") List<EpisodeAssetView> episodeAssets(@PathVariable UUID id) { return service.episodeAssets(id); }
+    @GetMapping("/episodes/{id}/replication-versions") List<MyScriptService.ReplicationVersionSummaryView> replicationVersions(@PathVariable UUID id) { return service.replicationVersions(id); }
+    @GetMapping("/episodes/{id}/replication-current") MyScriptService.ReplicationView currentReplication(@PathVariable UUID id) { return service.currentReplication(id); }
+    @GetMapping("/replication-versions/{id}") MyScriptService.ReplicationView replicationVersion(@PathVariable UUID id) { return service.replicationVersion(id); }
     @PostMapping("/{id}/characters") ResponseEntity<Void> saveCharacters(@PathVariable UUID id, @RequestBody List<CharacterRequest> requests) { service.saveCharacters(id, requests); return ResponseEntity.ok().build(); }
     @PostMapping("/{id}/characters/generate") CharacterView generateCharacter(@PathVariable UUID id, @RequestBody CharacterGenerateRequest request) { return service.generateCharacter(id, request == null ? null : request.characterName(), request == null ? null : request.prompt()); }
     @PostMapping("/{id}/characters/generate-all") List<CharacterView> generateAllCharacters(@PathVariable UUID id) { return service.generateAllCharacters(id); }
