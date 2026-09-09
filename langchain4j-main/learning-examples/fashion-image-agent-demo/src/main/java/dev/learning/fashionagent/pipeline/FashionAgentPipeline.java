@@ -92,12 +92,22 @@ public class FashionAgentPipeline {
             String prompt,
             PortraitGenerationMode portraitGenerationMode,
             PipelineObserver observer) {
+        return run(jobId, prompt, portraitGenerationMode, true, observer);
+    }
+
+    public PipelineResult run(
+            UUID jobId,
+            String prompt,
+            PortraitGenerationMode portraitGenerationMode,
+            boolean inspectQuality,
+            PipelineObserver observer) {
         properties.requiredApiKey();
         clothingCatalog.requireImages();
         PortraitGeneration portrait = createPortrait(
                 jobId,
                 prompt,
                 PortraitGenerationMode.defaultIfNull(portraitGenerationMode),
+                inspectQuality,
                 observer);
         Path originalImage = portrait.image();
         Agent2ClothingPicker.ImagePair images = agent2.prepare(
@@ -184,6 +194,7 @@ public class FashionAgentPipeline {
             UUID jobId,
             String description,
             PortraitGenerationMode portraitGenerationMode,
+            boolean inspectQuality,
             PipelineObserver observer) {
         PortraitPromptSpec promptSpec = portraitPromptEnhancer.enhance(description, observer);
         artifactService.writeJson(jobId, "portrait-prompt-spec.json", promptSpec);
@@ -239,12 +250,9 @@ public class FashionAgentPipeline {
                 submissionNumber++;
                 continue;
             }
-            PortraitQualityReport qualityReport = portraitQualityInspector.inspect(
-                    attemptImage,
-                    promptSpec,
-                    currentPrompt,
-                    attemptNumber,
-                    observer);
+            PortraitQualityReport qualityReport = inspectQuality
+                    ? portraitQualityInspector.inspect(attemptImage, promptSpec, currentPrompt, attemptNumber, observer)
+                    : PortraitQualityReport.notEvaluated("用户已关闭人物图片质检");
             PortraitAttempt attempt = new PortraitAttempt(
                     attemptNumber,
                     attemptImage,

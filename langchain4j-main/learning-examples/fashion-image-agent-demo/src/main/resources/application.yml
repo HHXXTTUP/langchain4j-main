@@ -6,6 +6,14 @@ server:
       enabled: true
       force: true
 
+video-browser:
+  # 留空时自动查找本机 Chrome/Edge；也可通过 VIDEO_BROWSER_EXECUTABLE 指定路径。
+  browser-executable: ${VIDEO_BROWSER_EXECUTABLE:}
+  # 指向包含 manifest.json 的插件目录；留空时在页面中逐个配置。
+  extension-directory: ${VIDEO_BROWSER_EXTENSION_DIRECTORY:C:/Users/lenovo/Desktop/AI多媒体/软件/dola30/Dola30s插件/Dola30无水印}
+  profile-root: ${VIDEO_BROWSER_PROFILE_DIRECTORY:video-browser-profiles}
+  start-url: ${VIDEO_BROWSER_START_URL:https://www.dola.com/}
+
 logging:
   charset:
     console: UTF-8
@@ -60,13 +68,18 @@ runninghub:
   download-max-attempts: 4
   download-retry-delay: 2s
   download-connect-timeout: ${RUNNINGHUB_DOWNLOAD_CONNECT_TIMEOUT:10s}
-  download-read-timeout: ${RUNNINGHUB_DOWNLOAD_READ_TIMEOUT:30s}
+  download-read-timeout: ${RUNNINGHUB_DOWNLOAD_READ_TIMEOUT:90s}
+  # RunningHub COS result URLs are downloaded directly; this must not inherit
+  # the Qwen/SnapAny VPN proxy. Enable only for a network that explicitly needs it.
+  download-proxy-enabled: ${RUNNINGHUB_DOWNLOAD_PROXY_ENABLED:false}
+  download-proxy-host: ${RUNNINGHUB_DOWNLOAD_PROXY_HOST:127.0.0.1}
+  download-proxy-port: ${RUNNINGHUB_DOWNLOAD_PROXY_PORT:7897}
   max-download-bytes: 20971520
   video-poll-interval: ${RUNNINGHUB_VIDEO_POLL_INTERVAL:2m}
   video-task-timeout: ${RUNNINGHUB_VIDEO_TASK_TIMEOUT:45m}
   video-max-upload-bytes: ${RUNNINGHUB_VIDEO_MAX_UPLOAD_BYTES:209715200}
   video-max-download-bytes: ${RUNNINGHUB_VIDEO_MAX_DOWNLOAD_BYTES:524288000}
-  video-download-max-attempts: ${RUNNINGHUB_VIDEO_DOWNLOAD_MAX_ATTEMPTS:12}
+  video-download-max-attempts: ${RUNNINGHUB_VIDEO_DOWNLOAD_MAX_ATTEMPTS:3}
   video-download-retry-delay: ${RUNNINGHUB_VIDEO_DOWNLOAD_RETRY_DELAY:5s}
   video-download-allow-http-fallback: ${RUNNINGHUB_VIDEO_DOWNLOAD_ALLOW_HTTP_FALLBACK:true}
   ffmpeg-path: ${FFMPEG_PATH:tools/ffmpeg/ffmpeg.exe}
@@ -87,7 +100,9 @@ runninghub:
 snapany:
   base-url: ${SNAPANY_BASE_URL:https://api.snapany.com}
   api-key: ${SNAPANY_API_KEY:}
-  proxy-enabled: ${SNAPANY_PROXY_ENABLED:${QWEN_PROXY_ENABLED:true}}
+  # All media requests use a direct connection by default. Set explicitly to
+  # true only when a proxy is intentionally required in a deployment.
+  proxy-enabled: ${SNAPANY_PROXY_ENABLED:false}
   proxy-host: ${SNAPANY_PROXY_HOST:${QWEN_PROXY_HOST:127.0.0.1}}
   proxy-port: ${SNAPANY_PROXY_PORT:${QWEN_PROXY_PORT:7897}}
   target-quality: ${SNAPANY_TARGET_QUALITY:1080}
@@ -97,7 +112,10 @@ snapany:
   max-urls-per-import: ${SNAPANY_MAX_URLS_PER_IMPORT:50}
   download-max-attempts: ${SNAPANY_DOWNLOAD_MAX_ATTEMPTS:3}
   chromium-fallback-enabled: ${SNAPANY_CHROMIUM_FALLBACK_ENABLED:true}
-  chromium-executable: ${SNAPANY_CHROMIUM_EXECUTABLE:}
+  # Explicit default for the Windows deployment. Override when Edge/Chrome is
+  # installed elsewhere. An explicit path prevents an environment-variable
+  # lookup quirk from disabling segmented direct downloads.
+  chromium-executable: ${SNAPANY_CHROMIUM_EXECUTABLE:C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe}
   chromium-chunk-bytes: ${SNAPANY_CHROMIUM_CHUNK_BYTES:1048576}
   chromium-startup-timeout: ${SNAPANY_CHROMIUM_STARTUP_TIMEOUT:20s}
   download-retry-delay: ${SNAPANY_DOWNLOAD_RETRY_DELAY:3s}
@@ -112,10 +130,8 @@ qwen:
   thinking-enabled: ${QWEN_THINKING_ENABLED:false}
   connect-timeout: ${QWEN_CONNECT_TIMEOUT:60s}
   read-timeout: ${QWEN_READ_TIMEOUT:30m}
-  # The current network reaches DashScope through the local VPN proxy.
-  # Override with QWEN_PROXY_ENABLED=false only when direct TLS is known to
-  # work in the runtime environment.
-  proxy-enabled: ${QWEN_PROXY_ENABLED:true}
+  # DashScope requests are direct by default; no local 789x proxy is assumed.
+  proxy-enabled: ${QWEN_PROXY_ENABLED:false}
   proxy-host: ${QWEN_PROXY_HOST:127.0.0.1}
   proxy-port: ${QWEN_PROXY_PORT:7897}
   video-script-proxy-enabled: ${QWEN_VIDEO_SCRIPT_PROXY_ENABLED:false}

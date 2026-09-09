@@ -127,6 +127,40 @@ public class VideoGenerationService {
         return uniqueIds.stream().map(this::enqueue).toList();
     }
 
+    /**
+     * Adds replacement work for video jobs that failed or were marked failed after an application restart.
+     * The original job stays in the history so its failure details remain available.
+     */
+    public synchronized List<VideoGenerationView> retryBatch(List<UUID> videoJobIds) {
+        if (videoJobIds == null) {
+            throw new IllegalArgumentException("请选择需要重新生成的视频任务");
+        }
+        List<UUID> uniqueIds = new LinkedHashSet<>(videoJobIds).stream()
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        if (uniqueIds.isEmpty()) {
+            throw new IllegalArgumentException("请选择需要重新生成的视频任务");
+        }
+        if (uniqueIds.size() > 20) {
+            throw new IllegalArgumentException("单次最多批量重新生成 20 个视频任务");
+        }
+
+        List<UUID> sourceJobIds = uniqueIds.stream()
+                .map(this::get)
+                .peek(view -> {
+                    if (view.status() != VideoGenerationStatus.FAILED) {
+                        throw new IllegalStateException("只有失败或中断的视频任务可以重新生成");
+                    }
+                })
+                .map(VideoGenerationView::sourceJobId)
+                .distinct()
+                .toList();
+        validateCommonRequirements();
+        Set<UUID> activeSourceIds = activeSourceJobIds();
+        sourceJobIds.forEach(sourceJobId -> validateSource(sourceJobId, activeSourceIds));
+        return sourceJobIds.stream().map(this::enqueue).toList();
+    }
+
     public synchronized VideoGenerationView retryDownload(UUID id) {
         VideoJob job = jobs.get(id);
         if (job == null) {
@@ -583,12 +617,18 @@ public class VideoGenerationService {
 
         synchronized void segmentProgress(int segmentNumber, String progress) {
             if (segmentNumber == 1) {
-                firstSegmentStatus = progress;
+                firstSegmentStatus = compactStatus(progress);
             } else {
-                secondSegmentStatus = progress;
+                secondSegmentStatus = compactStatus(progress);
             }
             message = "片段1：" + firstSegmentStatus + "；片段2：" + secondSegmentStatus;
             updatedAt = Instant.now();
+        }
+
+        private static String compactStatus(String value) {
+            if (value == null) return "";
+            String normalized = value.replace('\r', ' ').replace('\n', ' ').trim();
+            return normalized.length() <= 420 ? normalized : normalized.substring(0, 420) + "…";
         }
 
         synchronized void complete(

@@ -11,6 +11,7 @@ import dev.learning.fashionagent.service.GeminiTextClient;
 import dev.learning.fashionagent.service.GptImageClient;
 import dev.learning.fashionagent.service.AuditRedrawService;
 import dev.learning.fashionagent.director.ShortDramaDirectorPromptLibrary;
+import dev.learning.fashionagent.account.AccountContext;
 import java.io.IOException;
 import java.time.Instant;
 import java.nio.file.Files;
@@ -22,9 +23,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
@@ -34,6 +38,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class MyScriptService {
+    private static final int MAX_EPISODE_REFERENCE_IMAGES = 16;
     private static final Logger LOGGER = LoggerFactory.getLogger(MyScriptService.class);
     private static final int MAX_REPLICATION_SEGMENT_SECONDS = 15;
     private static final int MAX_REPLICATION_SEGMENTS = 10;
@@ -53,16 +58,21 @@ public class MyScriptService {
     private final ComfyUiVideoGenerationService comfy;
     private final ObjectMapper mapper;
     private final Executor executor;
+    private final ScheduledExecutorService scheduler;
     private final Map<UUID, Object> replicationLocks = new ConcurrentHashMap<>();
+    private final Map<UUID, BatchJob> episodeBatches = new ConcurrentHashMap<>();
+    private final Map<UUID, Object> episodeLocks = new ConcurrentHashMap<>();
+    private final Set<UUID> deletedEpisodeIds = ConcurrentHashMap.newKeySet();
 
     public MyScriptService(MyScriptRepository repository, GeminiProperties geminiProperties, GptImageProperties gptImageProperties,
                            RunningHubProperties runningHubProperties,
                            GeminiTextClient geminiClient, GptImageClient gptImageClient,
                            ShortDramaDirectorPromptLibrary prompts, ComfyUiVideoGenerationService comfy,
-                           ObjectMapper mapper, @Qualifier("storyVideoExecutor") Executor executor) {
+                           ObjectMapper mapper, @Qualifier("storyVideoExecutor") Executor executor,
+                           @Qualifier("storyVideoScheduler") ScheduledExecutorService scheduler) {
         this.repository = repository; this.geminiProperties = geminiProperties; this.gptImageProperties = gptImageProperties; this.runningHubProperties = runningHubProperties;
         this.geminiClient = geminiClient; this.gptImageClient = gptImageClient; this.prompts = prompts;
-        this.comfy = comfy; this.mapper = mapper; this.executor = executor;
+        this.comfy = comfy; this.mapper = mapper; this.executor = executor; this.scheduler = scheduler;
     }
 
     public void archiveInitial(UUID sourceJobId, String sourceText, String result, String tier, String platform, String ratio) {
@@ -85,6 +95,26 @@ public class MyScriptService {
         MyScriptRepository.ReplicationVersion latest = latestReplicationVersion(episodeId);
         if (latest != null) return repository.listReplicationVersionSegments(latest.id()).stream().map(segment -> segmentView(segment, episodeId)).toList();
         return repository.listSegments(episodeId).stream().map(this::segmentView).toList();
+    }
+    public void deleteEpisode(UUID episodeId) {
+        MyScriptRepository.Episode episode = requireEpisode(episodeId);
+        List<MyScriptRepository.Episode> episodes = repository.listEpisodes(episode.projectId());
+        int latestNumber = episodes.stream().mapToInt(MyScriptRepository.Episode::number).max().orElse(episode.number());
+        if (episode.number() != latestNumber) {
+            throw new IllegalStateException("只能删除当前项目最后一集，请先删除第" + latestNumber + "集");
+        }
+        BatchJob batch = episodeBatches.get(episode.projectId());
+        if (batch != null && (episodeId.equals(batch.latestEpisodeId) || "QUEUED".equals(batch.status) || "RUNNING".equals(batch.status))) {
+            batch.status = "CANCELLED";
+            batch.message = "因删除第" + episode.number() + "集，批量任务已停止";
+            batch.updatedAt = Instant.now();
+        }
+        Object lock = episodeLock(episodeId);
+        synchronized (lock) {
+            deletedEpisodeIds.add(episodeId);
+            repository.deleteEpisode(episodeId);
+        }
+        syncArtifactsQuietly(episode.projectId());
     }
     public List<ReplicationVersionSummaryView> replicationVersions(UUID episodeId) {
         requireEpisode(episodeId);
@@ -175,18 +205,36 @@ public class MyScriptService {
     }
 
     public String generateEpisodeCharacter(UUID episodeId, String characterName, String wardrobePrompt) {
+        return generateEpisodeCharacter(episodeId, characterName, wardrobePrompt, null);
+    }
+
+    public String generateEpisodeCharacter(UUID episodeId, String characterName, String wardrobePrompt, List<String> requestedImageSources) {
         MyScriptRepository.Episode episode = requireEpisode(episodeId);
         MyScriptRepository.Project project = requireProject(episode.projectId());
         MyScriptRepository.CharacterAsset asset = repository.listCharacterAssets(project.id()).stream()
                 .filter(item -> item.characterName().equals(characterName == null ? "" : characterName.trim())).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("请先生成或上传该人物的基础图"));
         try {
-            JsonNode sources = mapper.readTree(asset.imageSourcesJson());
-            String first = sources.isArray() && !sources.isEmpty() ? sources.get(0).asText() : "";
-            Path base = decodeImageSource(first, episodeId + "-" + safeFileName(asset.characterName()) + "-base");
+            List<Path> references = new ArrayList<>();
+            if (requestedImageSources != null) {
+                int index = 0;
+                for (String source : requestedImageSources) {
+                    if (source == null || source.isBlank()) continue;
+                    if (++index > MAX_EPISODE_REFERENCE_IMAGES) {
+                        throw new IllegalArgumentException("本集人物图最多支持 " + MAX_EPISODE_REFERENCE_IMAGES + " 张参考图");
+                    }
+                    references.add(decodeImageSource(source, episodeId + "-" + safeFileName(asset.characterName()) + "-uploaded-" + index));
+                }
+            }
+            if (references.isEmpty()) {
+                JsonNode sources = mapper.readTree(asset.imageSourcesJson());
+                String first = sources.isArray() && !sources.isEmpty() ? sources.get(0).asText() : "";
+                references.add(decodeImageSource(first, episodeId + "-" + safeFileName(asset.characterName()) + "-base"));
+            }
             Path output = scriptEpisodeDirectory(project, episode.number()).resolve("复刻").resolve("人物资产").resolve(safeFileName(asset.characterName()) + ".png").toAbsolutePath().normalize();
             String prompt = AuditRedrawService.auditPromptFor(asset.characterName(), wardrobePrompt);
-            gptImageClient.edit(List.of(base), prompt, output, gptImageProperties.requiredApiKey(), "2048x1152");
+            LOGGER.info("生成剧集人物图使用{}张{}参考图 episodeId={} character={}", references.size(), requestedImageSources != null && !requestedImageSources.isEmpty() ? "用户上传" : "基础资产", episodeId, asset.characterName());
+            gptImageClient.edit(references, prompt, output, gptImageProperties.requiredApiKey(), "2048x1152");
             String image = "data:image/png;base64," + Base64.getEncoder().encodeToString(Files.readAllBytes(output));
             Instant now = Instant.now();
             repository.saveEpisodeAsset(new MyScriptRepository.EpisodeAsset(
@@ -198,13 +246,34 @@ public class MyScriptService {
     }
 
     public String generateEpisodeEnvironment(UUID episodeId, String prompt) {
+        return generateEpisodeEnvironment(episodeId, prompt, null);
+    }
+
+    public String generateEpisodeEnvironment(UUID episodeId, String prompt, List<String> requestedImageSources) {
         MyScriptRepository.Episode episode = requireEpisode(episodeId);
         MyScriptRepository.Project project = requireProject(episode.projectId());
         try {
             Path output = scriptEpisodeDirectory(project, episode.number()).resolve("复刻").resolve("环境").resolve("environment.png").toAbsolutePath().normalize();
             String environment = prompt == null || prompt.isBlank() ? "根据本集环境描述生成纯净场景参考图" : prompt.trim();
             String finalPrompt = environment + "；只生成空场景环境参考图，不出现任何人物、人体、脸部、手脚、服装、角色或生物，不添加文字。";
-            gptImageClient.generate(finalPrompt, output);
+            List<Path> references = new ArrayList<>();
+            if (requestedImageSources != null) {
+                int index = 0;
+                for (String source : requestedImageSources) {
+                    if (source == null || source.isBlank()) continue;
+                    if (++index > MAX_EPISODE_REFERENCE_IMAGES) {
+                        throw new IllegalArgumentException("本集环境图最多支持 " + MAX_EPISODE_REFERENCE_IMAGES + " 张参考图");
+                    }
+                    references.add(decodeImageSource(source, episodeId + "-environment-uploaded-" + index));
+                }
+            }
+            if (references.isEmpty()) {
+                LOGGER.info("生成剧集环境图使用文生图 episodeId={} promptChars={}", episodeId, finalPrompt.length());
+                gptImageClient.generate(finalPrompt, output, gptImageProperties.requiredApiKey(), "2048x1152");
+            } else {
+                LOGGER.info("生成剧集环境图使用{}张用户参考图进行图生图 episodeId={} promptChars={}", references.size(), episodeId, finalPrompt.length());
+                gptImageClient.edit(references, finalPrompt, output, gptImageProperties.requiredApiKey(), "2048x1152");
+            }
             String image = "data:image/png;base64," + Base64.getEncoder().encodeToString(Files.readAllBytes(output));
             Instant now = Instant.now();
             repository.saveEpisodeAsset(new MyScriptRepository.EpisodeAsset(
@@ -293,7 +362,10 @@ public class MyScriptService {
                 .filter(prompt -> prompt.episodeId().equals(episodeId))
                 .orElseThrow(() -> new IllegalArgumentException("提示词记录不存在或不属于当前集"));
         MyScriptRepository.Episode queued = new MyScriptRepository.Episode(episode.id(), episode.projectId(), episode.number(), episode.title(), episode.summary(), episode.content(), "QUEUED", "正在排队重写本集", null, episode.createdAt(), Instant.now());
-        repository.saveEpisode(queued);
+        synchronized (episodeLock(episode.id())) {
+            ensureEpisodeActive(episode.id());
+            repository.saveEpisode(queued);
+        }
         String apiKey = geminiProperties.requiredApiKey();
         executor.execute(() -> rewriteEpisodeInBackground(project, episode, idea.trim(), basePrompt, apiKey));
         return episodeView(queued);
@@ -416,7 +488,7 @@ public class MyScriptService {
                     projectId, activeEpisode.id(), activeEpisode.number());
             return episodeView(activeEpisode);
         }
-        int number = episodes.size() + 1;
+        int number = episodes.stream().mapToInt(MyScriptRepository.Episode::number).max().orElse(0) + 1;
         Instant now = Instant.now();
         MyScriptRepository.Episode episode = new MyScriptRepository.Episode(UUID.randomUUID(), projectId, number, "第" + number + "集", null, null, "QUEUED", "已排队续写", null, now, now);
         repository.saveEpisode(episode);
@@ -424,6 +496,73 @@ public class MyScriptService {
         String apiKey = geminiProperties.requiredApiKey();
         executor.execute(() -> writeNextEpisode(project, episodes, episode, apiKey));
         return episodeView(episode);
+    }
+
+    /** Starts a serial batch. A new episode is queued only after the previous one succeeds. */
+    public BatchView startEpisodeBatch(UUID projectId, int count) {
+        if (count < 1 || count > 50) throw new IllegalArgumentException("一次可生成 1 至 50 集");
+        MyScriptRepository.Project project = requireProject(projectId);
+        BatchJob existing = episodeBatches.get(projectId);
+        if (existing != null && ("QUEUED".equals(existing.status) || "RUNNING".equals(existing.status))) {
+            return existing.view();
+        }
+        geminiProperties.requiredApiKey();
+        List<MyScriptRepository.Episode> episodes = repository.listEpisodes(projectId);
+        if (episodes.stream().anyMatch(item -> "QUEUED".equals(item.status()) || "RUNNING".equals(item.status()))) {
+            throw new IllegalStateException("当前项目已有剧集正在生成，请等待完成后再批量生成");
+        }
+        int existingCount = episodes.stream().mapToInt(MyScriptRepository.Episode::number).max().orElse(0);
+        BatchJob batch = new BatchJob(UUID.randomUUID(), projectId, count, existingCount, AccountContext.capture());
+        episodeBatches.put(projectId, batch);
+        scheduleBatchEpisode(project, batch, 0);
+        return batch.view();
+    }
+
+    public BatchView episodeBatch(UUID batchId) {
+        return episodeBatches.values().stream().filter(batch -> batch.id.equals(batchId)).findFirst()
+                .map(BatchJob::view).orElseThrow(() -> new IllegalArgumentException("批量生成任务不存在"));
+    }
+
+    private void scheduleBatchEpisode(MyScriptRepository.Project project, BatchJob batch, long delayMillis) {
+        scheduler.schedule(() -> {
+            AccountContext.Snapshot previous = AccountContext.capture();
+            try {
+                if (batch.accountContext == null) AccountContext.clear(); else AccountContext.set(batch.accountContext);
+                try {
+                    createBatchEpisode(project, batch);
+                } catch (Exception error) {
+                    batch.status = "FAILED";
+                    batch.message = "批量任务启动失败";
+                    batch.error = rootMessage(error);
+                    batch.updatedAt = Instant.now();
+                    LOGGER.error("剧本批量任务启动失败 projectId={} batchId={} reason={}", project.id(), batch.id, rootMessage(error), error);
+                }
+            } finally {
+                if (previous == null) AccountContext.clear(); else AccountContext.set(previous);
+            }
+        }, Math.max(0, delayMillis), TimeUnit.MILLISECONDS);
+    }
+
+    private void createBatchEpisode(MyScriptRepository.Project project, BatchJob batch) {
+        if (batch.completed >= batch.targetCount || "FAILED".equals(batch.status) || "SUCCESS".equals(batch.status) || "CANCELLED".equals(batch.status)) return;
+        List<MyScriptRepository.Episode> previous = repository.listEpisodes(project.id());
+        if (previous.stream().anyMatch(item -> "QUEUED".equals(item.status()) || "RUNNING".equals(item.status()))) {
+            batch.message = "等待当前剧集完成后继续批量生成";
+            scheduleBatchEpisode(project, batch, 1000);
+            return;
+        }
+        int number = previous.stream().mapToInt(MyScriptRepository.Episode::number).max().orElse(0) + 1;
+        Instant now = Instant.now();
+        MyScriptRepository.Episode episode = new MyScriptRepository.Episode(UUID.randomUUID(), project.id(), number,
+                "第" + number + "集", null, null, "QUEUED", "批量任务已排队", null, now, now);
+        repository.saveEpisode(episode);
+        batch.latestEpisodeId = episode.id();
+        batch.status = "RUNNING";
+        batch.message = "正在生成第" + number + "集（批量进度 " + (batch.completed + 1) + "/" + batch.targetCount + "）";
+        batch.updatedAt = Instant.now();
+        syncArtifactsQuietly(project.id());
+        String apiKey = geminiProperties.requiredApiKey();
+        executor.execute(() -> writeNextEpisode(project, previous, episode, apiKey, batch));
     }
 
     public ReplicationView prepareReplication(UUID episodeId) {
@@ -971,9 +1110,15 @@ public class MyScriptService {
     }
 
     private void writeNextEpisode(MyScriptRepository.Project project, List<MyScriptRepository.Episode> previous, MyScriptRepository.Episode episode, String apiKey) {
+        writeNextEpisode(project, previous, episode, apiKey, null);
+    }
+
+    private void writeNextEpisode(MyScriptRepository.Project project, List<MyScriptRepository.Episode> previous,
+                                  MyScriptRepository.Episode episode, String apiKey, BatchJob batch) {
         long startedNanos = System.nanoTime();
         MyScriptRepository.Prompt prompt = null;
         try {
+            if (isEpisodeDeleted(episode.id())) return;
             updateEpisode(episode, "RUNNING", "正在调用 Gemini 续写", null, null);
             LOGGER.info("剧本续写后台任务开始 projectId={} episodeId={} episode={} previousEpisodes={}",
                     project.id(), episode.id(), episode.number(), previous.size());
@@ -983,21 +1128,45 @@ public class MyScriptService {
                     + "\n你现在只创作第" + episode.number() + "集。必须承接已给剧本设定和上一集结尾，不要重复剧本设定；正文使用通俗现代汉语，情节完整连贯，不要写分镜、镜头、运镜、时长或视频制作说明。对白只用中文双引号标记，不添加字幕要求。";
             String user = "【剧本设定】\n" + project.settings() + "\n【上一集】\n" + last;
             prompt = newPrompt(episode.id(), "SYSTEM", "系统推演", null, system, user);
+            if (isEpisodeDeleted(episode.id())) return;
             repository.savePrompt(prompt);
             prompt = updatePrompt(prompt, "RUNNING", null, null);
             GeneratedEpisode generated = parseGeneratedEpisode(extractText(geminiClient.call("我的剧本/续写", system, user, apiKey)), episode.number());
+            if (isEpisodeDeleted(episode.id())) return;
             updateEpisodeContent(episode, "SUCCESS", "续写完成", generated, null);
             updatePrompt(prompt, "SUCCESS", generated.formatted(), null);
             syncArtifactsQuietly(project.id());
             LOGGER.info("剧本续写完成 projectId={} episodeId={} episode={} durationMs={} contentChars={}",
                     project.id(), episode.id(), episode.number(), elapsedMillis(startedNanos), generated.content().length());
+            if (batch != null) batchSucceeded(project, batch, episode);
         } catch (Exception exception) {
+            if (isEpisodeDeleted(episode.id())) return;
             LOGGER.error("剧本续写失败 projectId={} episodeId={} episode={} durationMs={} reason={}",
                     project.id(), episode.id(), episode.number(), elapsedMillis(startedNanos), rootMessage(exception), exception);
             updateEpisode(episode, "FAILED", "续写失败，可再次点击再来一集", null, rootMessage(exception));
             if (prompt != null) updatePrompt(prompt, "FAILED", null, rootMessage(exception));
             syncArtifactsQuietly(project.id());
+            if (batch != null) batchFailed(batch, episode, exception);
         }
+    }
+
+    private void batchSucceeded(MyScriptRepository.Project project, BatchJob batch, MyScriptRepository.Episode episode) {
+        batch.completed++;
+        batch.updatedAt = Instant.now();
+        if (batch.completed >= batch.targetCount) {
+            batch.status = "SUCCESS";
+            batch.message = "批量生成完成，共生成 " + batch.completed + " 集";
+            return;
+        }
+        batch.message = "第" + episode.number() + "集完成，准备继续生成下一集（" + batch.completed + "/" + batch.targetCount + "）";
+        scheduleBatchEpisode(project, batch, 500);
+    }
+
+    private void batchFailed(BatchJob batch, MyScriptRepository.Episode episode, Exception error) {
+        batch.status = "FAILED";
+        batch.message = "第" + episode.number() + "集生成失败，批量任务已停止";
+        batch.error = rootMessage(error);
+        batch.updatedAt = Instant.now();
     }
 
     private String callGemini(String system, String user, String apiKey) throws java.io.IOException {
@@ -1017,17 +1186,31 @@ public class MyScriptService {
     }
 
     private MyScriptRepository.Prompt updatePrompt(MyScriptRepository.Prompt original, String status, String result, String error) {
+        if (isEpisodeDeleted(original.episodeId())) return original;
         MyScriptRepository.Prompt changed = new MyScriptRepository.Prompt(original.id(), original.episodeId(), original.version(), original.sourceType(), original.sourceLabel(), original.idea(), original.promptText(), result == null ? original.resultContent() : result, status, error, original.createdAt(), Instant.now());
         repository.savePrompt(changed); return changed;
     }
     private SegmentView segmentView(MyScriptRepository.Segment s) { return new SegmentView(s.id(), s.episodeId(), s.number(), s.content(), s.durationSeconds(), s.status(), s.comfyTaskId(), s.error(), s.createdAt(), s.updatedAt()); }
     private SegmentView segmentView(MyScriptRepository.ReplicationVersionSegment s, UUID episodeId) { return new SegmentView(s.id(), episodeId, s.number(), s.content(), s.durationSeconds(), s.status(), s.comfyTaskId(), s.error(), s.createdAt(), s.updatedAt()); }
+    private Object episodeLock(UUID episodeId) { return episodeLocks.computeIfAbsent(episodeId, ignored -> new Object()); }
+    private boolean isEpisodeDeleted(UUID episodeId) { return deletedEpisodeIds.contains(episodeId); }
+    private void ensureEpisodeActive(UUID episodeId) { if (isEpisodeDeleted(episodeId)) throw new IllegalStateException("剧集已删除"); }
     private MyScriptRepository.Project requireProject(UUID id) { return repository.findProject(id).orElseThrow(() -> new IllegalArgumentException("剧本不存在")); }
     private MyScriptRepository.Episode requireEpisode(UUID id) { return repository.findEpisode(id).orElseThrow(() -> new IllegalArgumentException("剧集不存在")); }
     private MyScriptRepository.Segment requireSegment(UUID id) { return repository.findSegment(id).orElseThrow(() -> new IllegalArgumentException("复刻分段不存在")); }
-    private void updateEpisode(MyScriptRepository.Episode original, String status, String message, String content, String error) { repository.saveEpisode(new MyScriptRepository.Episode(original.id(), original.projectId(), original.number(), original.title(), original.summary(), content == null ? original.content() : content, status, message, error, original.createdAt(), Instant.now())); }
+    private void updateEpisode(MyScriptRepository.Episode original, String status, String message, String content, String error) {
+        if (isEpisodeDeleted(original.id())) return;
+        synchronized (episodeLock(original.id())) {
+            if (isEpisodeDeleted(original.id())) return;
+            repository.saveEpisode(new MyScriptRepository.Episode(original.id(), original.projectId(), original.number(), original.title(), original.summary(), content == null ? original.content() : content, status, message, error, original.createdAt(), Instant.now()));
+        }
+    }
     private void updateEpisodeContent(MyScriptRepository.Episode original, String status, String message, GeneratedEpisode generated, String error) {
-        repository.saveEpisode(new MyScriptRepository.Episode(original.id(), original.projectId(), original.number(), generated.title(), generated.summary(), generated.content(), status, message, error, original.createdAt(), Instant.now()));
+        if (isEpisodeDeleted(original.id())) return;
+        synchronized (episodeLock(original.id())) {
+            if (isEpisodeDeleted(original.id())) return;
+            repository.saveEpisode(new MyScriptRepository.Episode(original.id(), original.projectId(), original.number(), generated.title(), generated.summary(), generated.content(), status, message, error, original.createdAt(), Instant.now()));
+        }
     }
     private static ParsedScript parseInitial(String result, String source) { Matcher title = TITLE_MARKER.matcher(result); String name = title.find() ? title.group(1).trim() : fallbackTitle(source); Matcher settings = SETTINGS_MARKER.matcher(result); String set = settings.find() ? settings.group(1).trim() : result.trim(); return new ParsedScript(name, set, ""); }
     private static String fallbackTitle(String source) { String cleaned = source == null ? "未命名剧本" : source.replaceAll("\\s+", " ").trim(); return cleaned.isBlank() ? "未命名剧本" : cleaned.substring(0, Math.min(28, cleaned.length())); }
@@ -1056,10 +1239,32 @@ public class MyScriptService {
     public record SegmentView(UUID id, UUID episodeId, int number, String content, int durationSeconds, String status, UUID comfyTaskId, String error, Instant createdAt, Instant updatedAt) {}
     public record CharacterView(UUID id, UUID projectId, String characterName, String roleLevel, String anchor, String imageSourcesJson, int sortOrder, Instant createdAt, Instant updatedAt) {}
     public record EpisodeAssetView(UUID id, UUID episodeId, String assetType, String assetName, String prompt, String imageSourcesJson, Instant createdAt, Instant updatedAt) {}
+    public record BatchView(UUID id, UUID projectId, int targetCount, int completedCount, String status,
+                            String message, String error, UUID latestEpisodeId, Instant createdAt, Instant updatedAt) {}
     public record CharacterRequest(String characterName, String roleLevel, String anchor, String imageSourcesJson) {}
     private record CharacterPrompt(String name, String prompt) {}
     private record GeneratedEpisode(String title, String summary, String content) {
         private String formatted() { return "【本集标题】" + title + "\n【内容概述】" + summary + "\n【正文】\n" + content; }
+    }
+    private static final class BatchJob {
+        private final UUID id;
+        private final UUID projectId;
+        private final int targetCount;
+        private final Instant createdAt = Instant.now();
+        private final AccountContext.Snapshot accountContext;
+        private volatile int completed;
+        private volatile String status = "QUEUED";
+        private volatile String message = "批量任务已排队";
+        private volatile String error;
+        private volatile UUID latestEpisodeId;
+        private volatile Instant updatedAt = createdAt;
+
+        private BatchJob(UUID id, UUID projectId, int targetCount, int existingCount, AccountContext.Snapshot accountContext) {
+            this.id = id; this.projectId = projectId; this.targetCount = targetCount; this.completed = 0; this.accountContext = accountContext;
+            this.message = "准备生成第" + (existingCount + 1) + "集，共 " + targetCount + " 集";
+        }
+
+        private BatchView view() { return new BatchView(id, projectId, targetCount, completed, status, message, error, latestEpisodeId, createdAt, updatedAt); }
     }
     private CharacterView characterView(MyScriptRepository.CharacterAsset a) { return new CharacterView(a.id(), a.projectId(), a.characterName(), a.roleLevel(), a.anchor(), a.imageSourcesJson(), a.sortOrder(), a.createdAt(), a.updatedAt()); }
     private EpisodeAssetView episodeAssetView(MyScriptRepository.EpisodeAsset a) { return new EpisodeAssetView(a.id(), a.episodeId(), a.assetType(), a.assetName(), a.prompt(), a.imageSourcesJson(), a.createdAt(), a.updatedAt()); }

@@ -27,6 +27,9 @@ class JdbcMyScriptRepository implements MyScriptRepository {
                 ON DUPLICATE KEY UPDATE title=VALUES(title), summary_text=VALUES(summary_text), content=VALUES(content), status=VALUES(status), message=VALUES(message), error_message=VALUES(error_message), updated_at=VALUES(updated_at)
                 """, e.id().toString(), e.projectId().toString(), e.number(), e.title(), e.summary(), e.content(), e.status(), e.message(), e.error(), Timestamp.from(e.createdAt()), Timestamp.from(e.updatedAt()));
     }
+    @Override public void deleteEpisode(UUID episodeId) {
+        jdbc.update("DELETE FROM my_script_episode WHERE id=?", episodeId.toString());
+    }
     @Override public void saveSegment(Segment s) {
         jdbc.update("""
                 INSERT INTO script_replication_segment (id, episode_id, segment_number, content, duration_seconds, status, comfy_task_id, error_message, created_at, updated_at)

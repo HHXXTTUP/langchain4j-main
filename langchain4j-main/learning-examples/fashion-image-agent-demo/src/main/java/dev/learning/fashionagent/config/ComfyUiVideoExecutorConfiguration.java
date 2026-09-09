@@ -2,6 +2,8 @@ package dev.learning.fashionagent.config;
 
 import dev.learning.fashionagent.account.AccountTaskDecorator;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -31,5 +33,16 @@ public class ComfyUiVideoExecutorConfiguration {
         executor.setTaskDecorator(new AccountTaskDecorator());
         executor.initialize();
         return executor;
+    }
+
+    @Bean(destroyMethod = "shutdown")
+    ScheduledExecutorService storyVideoScheduler() {
+        ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1, runnable -> {
+            Thread thread = new Thread(runnable, "story-video-scheduler");
+            thread.setDaemon(true);
+            return thread;
+        });
+        scheduler.setRemoveOnCancelPolicy(true);
+        return scheduler;
     }
 }

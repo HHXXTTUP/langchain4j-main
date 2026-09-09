@@ -3,6 +3,8 @@ package dev.learning.fashionagent.config;
 import dev.learning.fashionagent.account.AccountContext;
 
 import java.net.URI;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
 import java.nio.file.Path;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -33,13 +35,18 @@ public class RunningHubProperties {
     private int downloadMaxAttempts = 4;
     private Duration downloadRetryDelay = Duration.ofSeconds(2);
     private Duration downloadConnectTimeout = Duration.ofSeconds(10);
-    private Duration downloadReadTimeout = Duration.ofSeconds(30);
+    // Video result objects can take longer than an image to start/finish;
+    // allow a bounded 90-second socket read without making retries unbounded.
+    private Duration downloadReadTimeout = Duration.ofSeconds(90);
+    private boolean downloadProxyEnabled;
+    private String downloadProxyHost = "127.0.0.1";
+    private int downloadProxyPort = 7897;
     private long maxDownloadBytes = 20L * 1024 * 1024;
     private Duration videoPollInterval = Duration.ofMinutes(2);
     private Duration videoTaskTimeout = Duration.ofMinutes(45);
     private long videoMaxUploadBytes = 200L * 1024 * 1024;
     private long videoMaxDownloadBytes = 500L * 1024 * 1024;
-    private int videoDownloadMaxAttempts = 12;
+    private int videoDownloadMaxAttempts = 3;
     private Duration videoDownloadRetryDelay = Duration.ofSeconds(5);
     private boolean videoDownloadAllowHttpFallback = true;
     private String ffmpegPath = "ffmpeg";
@@ -247,6 +254,22 @@ public class RunningHubProperties {
 
     public void setDownloadReadTimeout(Duration downloadReadTimeout) {
         this.downloadReadTimeout = downloadReadTimeout;
+    }
+
+    public boolean isDownloadProxyEnabled() { return downloadProxyEnabled; }
+    public void setDownloadProxyEnabled(boolean downloadProxyEnabled) { this.downloadProxyEnabled = downloadProxyEnabled; }
+    public String getDownloadProxyHost() { return downloadProxyHost; }
+    public void setDownloadProxyHost(String downloadProxyHost) { this.downloadProxyHost = downloadProxyHost; }
+    public int getDownloadProxyPort() { return downloadProxyPort; }
+    public void setDownloadProxyPort(int downloadProxyPort) { this.downloadProxyPort = downloadProxyPort; }
+    public boolean isDownloadProxyConfigured() {
+        return downloadProxyEnabled && downloadProxyHost != null && !downloadProxyHost.isBlank()
+                && downloadProxyPort > 0 && downloadProxyPort <= 65535;
+    }
+    public Proxy downloadProxy() {
+        return isDownloadProxyConfigured()
+                ? new Proxy(Proxy.Type.HTTP, new InetSocketAddress(downloadProxyHost.trim(), downloadProxyPort))
+                : Proxy.NO_PROXY;
     }
 
     public long getMaxDownloadBytes() {

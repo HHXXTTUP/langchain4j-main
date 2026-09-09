@@ -8,6 +8,7 @@ import java.util.UUID;
 interface MyScriptRepository {
     void saveProject(Project project);
     void saveEpisode(Episode episode);
+    void deleteEpisode(UUID episodeId);
     void saveSegment(Segment segment);
     void deleteSegments(UUID episodeId);
     void saveReplicationMaterial(UUID episodeId, String materialJson);

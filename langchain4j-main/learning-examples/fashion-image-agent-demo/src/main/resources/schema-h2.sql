@@ -91,6 +91,18 @@ CREATE TABLE IF NOT EXISTS app_menu_config (
     enabled BOOLEAN DEFAULT TRUE NOT NULL, updated_at TIMESTAMP(6) NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_app_menu_config_order ON app_menu_config(sort_order, menu_id);
+CREATE TABLE IF NOT EXISTS video_browser_profile (
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    account_hint VARCHAR(255),
+    profile_directory VARCHAR(1000) NOT NULL,
+    extension_directory VARCHAR(1000),
+    browser_executable VARCHAR(1000),
+    start_url VARCHAR(1000) NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL,
+    updated_at TIMESTAMP(6) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_video_browser_profile_updated ON video_browser_profile(updated_at);
 ALTER TABLE app_account_setting ADD COLUMN IF NOT EXISTS gemini_key CLOB;
 ALTER TABLE app_account_setting ADD COLUMN IF NOT EXISTS gpt_images_key CLOB;
 

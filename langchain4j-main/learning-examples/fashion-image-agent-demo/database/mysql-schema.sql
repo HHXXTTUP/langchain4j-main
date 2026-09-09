@@ -186,3 +186,19 @@ CREATE TABLE IF NOT EXISTS qwen_video_script_job (
     KEY idx_qwen_video_script_created_at (created_at),
     KEY idx_qwen_video_script_status (status, updated_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Local browser profiles managed by the Web "视频生成中心". Browser credentials
+-- and cookies remain in the profile directory and are never stored in this table.
+CREATE TABLE IF NOT EXISTS video_browser_profile (
+    id CHAR(36) NOT NULL,
+    name VARCHAR(120) NOT NULL,
+    account_hint VARCHAR(255) NULL,
+    profile_directory VARCHAR(1000) NOT NULL,
+    extension_directory VARCHAR(1000) NULL,
+    browser_executable VARCHAR(1000) NULL,
+    start_url VARCHAR(1000) NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    KEY idx_video_browser_profile_updated (updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

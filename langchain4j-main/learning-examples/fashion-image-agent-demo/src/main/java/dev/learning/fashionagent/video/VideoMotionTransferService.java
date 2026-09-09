@@ -13,6 +13,7 @@ import java.util.concurrent.Semaphore;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -26,24 +27,40 @@ public class VideoMotionTransferService {
     private final RunningHubTaskRunner taskRunner;
     private final RunningHubProperties properties;
     private final VideoMediaProcessor mediaProcessor;
+    private final ChromiumSegmentedMediaDownloader chromiumDownloader;
 
     private enum DownloadChannel {
+        BYTES,
+        CHROMIUM,
         JAVA,
         CONSCRYPT,
-        POWERSHELL
+        POWERSHELL,
+        CURL
     }
 
     private record DownloadAttempt(URI uri, DownloadChannel channel) {}
 
+    @Autowired
+    public VideoMotionTransferService(
+            RunningHubClient client,
+            RunningHubTaskRunner taskRunner,
+            RunningHubProperties properties,
+            VideoMediaProcessor mediaProcessor,
+            ChromiumSegmentedMediaDownloader chromiumDownloader) {
+        this.client = client;
+        this.taskRunner = taskRunner;
+        this.properties = properties;
+        this.mediaProcessor = mediaProcessor;
+        this.chromiumDownloader = chromiumDownloader;
+    }
+
+    /** Backward-compatible constructor for lightweight unit tests. */
     public VideoMotionTransferService(
             RunningHubClient client,
             RunningHubTaskRunner taskRunner,
             RunningHubProperties properties,
             VideoMediaProcessor mediaProcessor) {
-        this.client = client;
-        this.taskRunner = taskRunner;
-        this.properties = properties;
-        this.mediaProcessor = mediaProcessor;
+        this(client, taskRunner, properties, mediaProcessor, null);
     }
 
     public Path transfer(
@@ -140,41 +157,108 @@ public class VideoMotionTransferService {
     private Path downloadWithChannel(DownloadChannel channel, URI uri, Path target) {
         long maxBytes = properties.getVideoMaxDownloadBytes();
         return switch (channel) {
+            case BYTES -> client.downloadToFileAsBytes(uri, target, maxBytes);
+            case CHROMIUM -> downloadViaChromium(uri, target);
             case JAVA -> client.downloadToFile(uri, target, maxBytes);
             case CONSCRYPT -> client.downloadToFileViaConscrypt(uri, target, maxBytes);
             case POWERSHELL -> client.downloadToFileViaPowerShell(uri, target, maxBytes);
+            case CURL -> client.downloadToFileViaCurl(uri, target, maxBytes);
         };
     }
 
     private static String channelName(DownloadChannel channel) {
         return switch (channel) {
+            case BYTES -> "Java 字节直读";
+            case CHROMIUM -> "Chromium 分段直连";
             case JAVA -> "Java HTTPS";
             case CONSCRYPT -> "Conscrypt HTTPS";
             case POWERSHELL -> "PowerShell";
+            case CURL -> "curl";
         };
     }
 
     private List<DownloadAttempt> downloadPlan(URI originalUri) {
+        URI httpsUpgrade = trustedCosHttpsUpgrade(originalUri);
+        if (httpsUpgrade != null && !httpsUpgrade.equals(originalUri)) {
+            // RunningHub has historically returned an http COS URL.  The
+            // endpoint's HTTP HEAD is reachable but its response body can
+            // stall, whereas the HTTPS object is the URL browsers normally
+            // use. Try the secure URL first and retain HTTP only as a final
+            // compatibility fallback.
+            if (chromiumDownloader != null && chromiumDownloader.isAvailable()) {
+                return List.of(
+                        new DownloadAttempt(httpsUpgrade, DownloadChannel.CHROMIUM),
+                        new DownloadAttempt(httpsUpgrade, DownloadChannel.BYTES),
+                        new DownloadAttempt(originalUri, DownloadChannel.CHROMIUM),
+                        new DownloadAttempt(originalUri, DownloadChannel.BYTES));
+            }
+            return List.of(
+                    new DownloadAttempt(httpsUpgrade, DownloadChannel.BYTES),
+                    new DownloadAttempt(originalUri, DownloadChannel.BYTES));
+        }
         if ("https".equalsIgnoreCase(originalUri.getScheme())) {
             URI httpFallback = properties.isVideoDownloadAllowHttpFallback()
                     ? trustedCosHttpFallback(originalUri)
                     : originalUri;
+            // Keep the URL returned by RunningHub (normally HTTPS) first.  A
+            // previous implementation forced the COS URL to HTTP before the
+            // first attempt; that endpoint often accepts HEAD but stalls on
+            // the response body, while the same HTTPS URL downloads normally
+            // in a browser.  Only try HTTP as a final compatibility fallback.
+            if (chromiumDownloader != null && chromiumDownloader.isAvailable()) {
+                if (!httpFallback.equals(originalUri)) {
+                    return List.of(
+                            new DownloadAttempt(originalUri, DownloadChannel.CHROMIUM),
+                            new DownloadAttempt(originalUri, DownloadChannel.BYTES),
+                            new DownloadAttempt(httpFallback, DownloadChannel.CHROMIUM),
+                            new DownloadAttempt(httpFallback, DownloadChannel.BYTES));
+                }
+                return List.of(
+                        new DownloadAttempt(originalUri, DownloadChannel.CHROMIUM),
+                        new DownloadAttempt(originalUri, DownloadChannel.BYTES));
+            }
             if (!httpFallback.equals(originalUri)) {
                 return List.of(
-                        new DownloadAttempt(originalUri, DownloadChannel.JAVA),
-                        new DownloadAttempt(originalUri, DownloadChannel.CONSCRYPT),
-                        new DownloadAttempt(originalUri, DownloadChannel.POWERSHELL),
-                        new DownloadAttempt(httpFallback, DownloadChannel.JAVA),
-                        new DownloadAttempt(httpFallback, DownloadChannel.POWERSHELL));
+                        new DownloadAttempt(originalUri, DownloadChannel.BYTES),
+                        new DownloadAttempt(httpFallback, DownloadChannel.BYTES));
             }
-            return List.of(
-                    new DownloadAttempt(originalUri, DownloadChannel.JAVA),
-                    new DownloadAttempt(originalUri, DownloadChannel.CONSCRYPT),
-                    new DownloadAttempt(originalUri, DownloadChannel.POWERSHELL));
+            return List.of(new DownloadAttempt(originalUri, DownloadChannel.BYTES));
         }
-        return List.of(
-                new DownloadAttempt(originalUri, DownloadChannel.JAVA),
-                new DownloadAttempt(originalUri, DownloadChannel.POWERSHELL));
+        if (chromiumDownloader != null && chromiumDownloader.isAvailable()) {
+            return List.of(
+                    new DownloadAttempt(originalUri, DownloadChannel.CHROMIUM),
+                    new DownloadAttempt(originalUri, DownloadChannel.BYTES));
+        }
+        return List.of(new DownloadAttempt(originalUri, DownloadChannel.BYTES));
+    }
+
+    private static URI trustedCosHttpsUpgrade(URI originalUri) {
+        if (!"http".equalsIgnoreCase(originalUri.getScheme())) return null;
+        String host = originalUri.getHost();
+        if (host == null) return null;
+        String normalizedHost = host.toLowerCase(Locale.ROOT);
+        if (!normalizedHost.startsWith("rh-images-")
+                || !normalizedHost.endsWith(".cos.ap-beijing.myqcloud.com")) {
+            return null;
+        }
+        return URI.create("https://" + originalUri.toASCIIString().substring("http://".length()));
+    }
+
+    private Path downloadViaChromium(URI uri, Path target) {
+        if (chromiumDownloader == null) {
+            throw new RunningHubException("Chromium 下载器未配置");
+        }
+        try {
+            chromiumDownloader.download(uri, java.util.Map.of(
+                    "User-Agent", "Mozilla/5.0 FashionImageAgent/1.0",
+                    "Accept", "video/mp4,video/*,*/*;q=0.8",
+                    "Accept-Encoding", "identity",
+                    "Referer", "https://www.runninghub.cn/"), target);
+            return target;
+        } catch (java.io.IOException exception) {
+            throw new RunningHubException("Chromium 分段直连下载失败：" + uri
+                    + "，原因=" + exception.getMessage(), exception);
+        }
     }
 
     private static URI trustedCosHttpFallback(URI originalUri) {
@@ -242,11 +326,10 @@ public class VideoMotionTransferService {
 
     private List<NodeInput> workflowInputs(String videoFile, String imageFile) {
         return List.of(
-                // RunningHub 最新视频工作流已移除旧的 535/select 节点，改为输出方式 561/select，
-                // 并新增 538/value 控制“正常模式/防突变长视频模式”。
-                node("561", "select", "1", "输出方式"),
+                // RunningHub 动作迁移 AI 应用工作流节点以接口文档为准。
+                node("571", "select", "1", "输出方式"),
                 node("538", "value", "true", "正常模式（长视频防突变模式关闭）"),
-                node("293", "select", "1", "姿势计算方式"),
+                node("563", "select", "1", "姿势选择"),
                 node("497", "value", "false", "姿势3，正常关闭"),
                 node("297", "value", "1.0000000000000002", "姿势强度"),
                 node("370", "value", "false", "运镜开关"),
@@ -257,11 +340,11 @@ public class VideoMotionTransferService {
                 node("499", "value", "0", "跳过帧数"),
                 node("422", "value", Integer.toString(properties.getVideoMotionMaxFrames()), "加载帧上限"),
                 node("264", "value", Integer.toString(properties.getVideoMotionInputFrameRate()), "帧率"),
-                node("470", "select", properties.getVideoMotionResolutionPreset(), "分辨率(推荐默认)"),
+                node("566", "select", properties.getVideoMotionResolutionPreset(), "分辨率"),
                 node("452", "value", "false", "关闭自定义比例"),
                 node("451", "value", "9", "比例宽"),
                 node("450", "value", "16", "比例高"),
-                node("275", "video", videoFile, "加载参考视频"),
+                node("574", "video", videoFile, "加载参考视频"),
                 node("299", "image", imageFile, "加载参考图片"));
     }
 

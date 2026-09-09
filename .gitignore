@@ -48,3 +48,8 @@ fashion-image-agent/
 *.key
 *.bin
 *.psd
+
+# Browser runtime profiles
+**/video-browser-profiles/
+**/browser-profiles/
+

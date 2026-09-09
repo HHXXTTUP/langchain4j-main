@@ -40,6 +40,12 @@ public class VideoGenerationController {
                 request == null ? null : request.sourceJobIds()));
     }
 
+    @PostMapping("/retry-batch")
+    ResponseEntity<List<VideoGenerationView>> retryBatch(@RequestBody RetryVideoGenerationRequest request) {
+        return ResponseEntity.accepted().body(service.retryBatch(
+                request == null ? null : request.videoJobIds()));
+    }
+
     @GetMapping
     List<VideoGenerationView> list() {
         return service.list();
@@ -75,4 +81,6 @@ public class VideoGenerationController {
     }
 
     record BatchVideoGenerationRequest(List<UUID> sourceJobIds) {}
+
+    record RetryVideoGenerationRequest(List<UUID> videoJobIds) {}
 }

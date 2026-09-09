@@ -509,3 +509,17 @@ GET /api/system/logs?lines=800
 8. 在 `knowledge/fashion` 新增一条具体规则，执行任务后从 `RAG_RETRIEVAL` 步骤观察它是否被召回。
 9. 分别调整 `min-score` 和 `max-results`，比较“零召回、精准召回、过度召回”对最终提示词的影响。
 10. 知识量扩大后把 `InMemoryEmbeddingStore` 替换为持久化向量库，再加入用户偏好的对话 Memory 或更高层 Agentic 编排。
+# 视频生成中心：本地多开浏览器
+
+项目新增“视频生成中心”菜单，用于管理本机的隔离 Chromium Profile。每个账号实例有独立的 Cookie、Local Storage 和下载上下文，可在启动参数中加载 Manifest V3 未打包扩展。
+
+默认插件目录已指向本机的 Dola 插件目录，也可以通过环境变量覆盖：
+
+```text
+VIDEO_BROWSER_EXECUTABLE=C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe
+VIDEO_BROWSER_EXTENSION_DIRECTORY=C:\\path\\to\\Dola30无水印
+VIDEO_BROWSER_PROFILE_DIRECTORY=video-browser-profiles
+VIDEO_BROWSER_START_URL=https://www.dola.com/
+```
+
+使用方式：登录平台后打开“视频生成中心”→填写账号名称和插件目录→创建账号实例→点击“启动”→在新窗口中手动完成 Google/Dola 登录。平台不会保存 Google 密码，登录状态只保存在本机 Profile 目录。

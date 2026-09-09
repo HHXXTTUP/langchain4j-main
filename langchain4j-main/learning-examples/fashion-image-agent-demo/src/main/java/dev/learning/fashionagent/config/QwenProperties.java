@@ -22,9 +22,8 @@ public class QwenProperties {
     private boolean thinkingEnabled = false;
     private Duration connectTimeout = Duration.ofSeconds(60);
     private Duration readTimeout = Duration.ofMinutes(30);
-    // The desktop runtime reaches DashScope through the local VPN proxy.
-    // Set QWEN_PROXY_ENABLED=false only when direct TLS is available.
-    private boolean proxyEnabled = true;
+    // Direct connection by default. A proxy is opt-in via configuration.
+    private boolean proxyEnabled = false;
     private boolean videoScriptProxyEnabled = false;
     private String proxyHost = "127.0.0.1";
     private int proxyPort = 7897;

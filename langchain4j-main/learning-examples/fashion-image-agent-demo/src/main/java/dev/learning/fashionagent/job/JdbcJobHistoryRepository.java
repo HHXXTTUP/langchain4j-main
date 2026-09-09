@@ -334,7 +334,8 @@ class JdbcJobHistoryRepository implements JobHistoryRepository {
                 error,
                 details,
                 source.createdAt(),
-                recoveredAt);
+                recoveredAt,
+                source.inspectQuality());
     }
 
     private record InterruptedJob(

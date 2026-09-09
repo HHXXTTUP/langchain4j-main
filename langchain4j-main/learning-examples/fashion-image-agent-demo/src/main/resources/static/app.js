@@ -3,6 +3,7 @@ const promptInput = document.querySelector("#prompt");
 const characterCount = document.querySelector("#character-count");
 const submitButton = document.querySelector("#submit-button");
 const portraitGenerationModeInputs = [...document.querySelectorAll('input[name="portrait-generation-mode"]')];
+const inspectQualityInput = document.getElementById("inspect-quality");
 const formError = document.querySelector("#form-error");
 const readinessMessage = document.querySelector("#readiness-message");
 const systemState = document.querySelector("#system-state");
@@ -63,6 +64,9 @@ const taskDetailTime = document.querySelector("#task-detail-time");
 const batchGenerateVideo = document.querySelector("#batch-generate-video");
 const selectedVideoCount = document.querySelector("#selected-video-count");
 const selectAllVideoSources = document.querySelector("#select-all-video-sources");
+const batchRetryVideo = document.querySelector("#batch-retry-video");
+const selectedVideoRetryCount = document.querySelector("#selected-video-retry-count");
+const selectAllVideoRetries = document.querySelector("#select-all-video-retries");
 const imagePreviewModal = document.querySelector("#image-preview-modal");
 const imagePreview = document.querySelector("#image-preview");
 const imagePreviewCaption = document.querySelector("#image-preview-caption");
@@ -164,7 +168,6 @@ const shortDramaHistory = document.querySelector("#short-drama-history");
 const refreshShortDramaTasks = document.querySelector("#refresh-short-drama-tasks");
 const myScriptList = document.querySelector("#my-script-list");
 const myScriptDetail = document.querySelector("#my-script-detail");
-const refreshMyScripts = document.querySelector("#refresh-my-scripts");
 const scriptReplicationEmpty = document.querySelector("#script-replication-empty");
 const scriptReplicationContent = document.querySelector("#script-replication-content");
 const refreshScriptReplication = document.querySelector("#refresh-script-replication");
@@ -189,6 +192,29 @@ const accountMenuGrid = document.querySelector("#account-menu-grid");
 const menuConfigList = document.querySelector("#menu-config-list");
 const menuConfigMessage = document.querySelector("#menu-settings-message");
 const saveMenuConfigButton = document.querySelector("#save-menu-config");
+const videoBrowserRefresh = document.querySelector("#video-browser-refresh");
+const videoBrowserProfileForm = document.querySelector("#video-browser-profile-form");
+const videoBrowserName = document.querySelector("#video-browser-name");
+const videoBrowserAccountHint = document.querySelector("#video-browser-account-hint");
+const videoBrowserExtension = document.querySelector("#video-browser-extension");
+const videoBrowserExecutable = document.querySelector("#video-browser-executable");
+const videoBrowserStartUrl = document.querySelector("#video-browser-start-url");
+const videoBrowserFormMessage = document.querySelector("#video-browser-form-message");
+const videoBrowserListMessage = document.querySelector("#video-browser-list-message");
+const videoBrowserList = document.querySelector("#video-browser-list");
+const videoBrowserAdd = document.querySelector("#video-browser-add");
+const videoBrowserCancelAdd = document.querySelector("#video-browser-cancel-add");
+const videoBrowserViewport = document.querySelector("#video-browser-viewport");
+const videoBrowserCurrentTitle = document.querySelector("#video-browser-current-title");
+const videoBrowserCurrentUrl = document.querySelector("#video-browser-current-url");
+const videoBrowserDarkMode = document.querySelector("#video-browser-dark-mode");
+let selectedVideoBrowserId = null;
+let videoBrowserScreenshotTimer = null;
+let videoBrowserScreenshotInFlight = false;
+let videoBrowserScreenshotUrl = null;
+let videoBrowserInputQueue = Promise.resolve();
+let videoBrowserSwitchToken = 0;
+let videoBrowserAccounts = [];
 let currentAccountSession = null;
 let accountRows = [];
 let menuConfigRows = [];
@@ -231,11 +257,13 @@ let currentTaskTab = "images";
 let hasDebugError = false;
 const jobsById = new Map();
 const videoJobsBySource = new Map();
+const selectedVideoRetryIds = new Set();
 const selectedVideoSourceIds = new Set();
 const pendingVideoJobsBySource = new Map();
 let currentImageJobs = [];
 let currentVideoJobs = [];
 let batchVideoSubmitting = false;
+let batchVideoRetrySubmitting = false;
 let selectedVideoFolder = null;
 const selectedVideoSourceFolders = new Set();
 let currentStoryPlan = null;
@@ -323,14 +351,41 @@ videoScriptTabs.forEach((tab) => tab.addEventListener("click", () => activateVid
 if (refreshVideoScripts) refreshVideoScripts.addEventListener("click", loadVideoScripts);
 if (shortDramaDirectorForm) shortDramaDirectorForm.addEventListener("submit", submitShortDramaDirector);
 if (refreshShortDramaTasks) refreshShortDramaTasks.addEventListener("click", loadShortDramaTasks);
-if (refreshMyScripts) refreshMyScripts.addEventListener("click", loadMyScripts);
 if (refreshScriptReplication) refreshScriptReplication.addEventListener("click", () => selectedMyScriptEpisodeId && loadScriptReplication(selectedMyScriptEpisodeId));
 loadVideoScripts();
 loadShortDramaTasks();
 loadMyScripts();
 loadVideoBgmFiles();
+if (videoBrowserProfileForm) videoBrowserProfileForm.addEventListener("submit", submitVideoBrowserProfile);
+if (videoBrowserRefresh) videoBrowserRefresh.addEventListener("click", loadVideoBrowserProfiles);
+if (videoBrowserAdd) videoBrowserAdd.addEventListener("click", () => { videoBrowserProfileForm.hidden = false; videoBrowserName?.focus(); });
+if (videoBrowserCancelAdd) videoBrowserCancelAdd.addEventListener("click", () => { videoBrowserProfileForm.hidden = true; videoBrowserFormMessage.textContent = ""; });
+if (videoBrowserDarkMode) videoBrowserDarkMode.addEventListener("click", () => { document.documentElement.classList.toggle("video-browser-light"); videoBrowserDarkMode.textContent = document.documentElement.classList.contains("video-browser-light") ? "☀ 浅色" : "☾ 深色"; });
+if (videoBrowserViewport) {
+    const browserCanvasPoint = event => {
+        const rect = videoBrowserViewport.getBoundingClientRect();
+        return {x: Math.max(0, Math.min(1280, (event.clientX - rect.left) * 1280 / Math.max(1, rect.width))), y: Math.max(0, Math.min(820, (event.clientY - rect.top) * 820 / Math.max(1, rect.height)))};
+    };
+    videoBrowserViewport.addEventListener("pointerdown", () => videoBrowserViewport.focus());
+    videoBrowserViewport.addEventListener("click", event => { videoBrowserViewport.focus(); const point = browserCanvasPoint(event); sendEmbeddedBrowserInput({type: "click", ...point}); });
+    videoBrowserViewport.addEventListener("wheel", event => { event.preventDefault(); videoBrowserViewport.focus(); const point = browserCanvasPoint(event); sendEmbeddedBrowserInput({type: "scroll", ...point, deltaY: event.deltaY}); }, {passive: false});
+    videoBrowserViewport.addEventListener("keydown", event => {
+        // The screenshot is not a real DOM input. Forward every key to CDP and
+        // suppress the host page's own editing/scrolling behavior.
+        event.preventDefault();
+        const modifier = event.ctrlKey || event.metaKey;
+        if (modifier && event.key.toLowerCase() === "c") { copyEmbeddedSelection(); return; }
+        if (modifier && event.key.toLowerCase() === "v") { pasteEmbeddedClipboard(); return; }
+        if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+            sendEmbeddedBrowserInput({type: "type", text: event.key});
+        } else {
+            sendEmbeddedBrowserInput({type: "key", key: event.key, code: event.code, altKey: event.altKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey, shiftKey: event.shiftKey});
+        }
+    });
+}
 if (videoWorkflowCanvas) initVideoWorkflowCanvas();
 batchGenerateVideo.addEventListener("click", startBatchVideoGeneration);
+batchRetryVideo.addEventListener("click", startBatchVideoRetry);
 selectAllVideoSources.addEventListener("change", () => {
     const eligibleIds = eligibleVideoSourceIds();
     if (selectAllVideoSources.checked) {
@@ -339,6 +394,15 @@ selectAllVideoSources.addEventListener("change", () => {
         eligibleIds.forEach((id) => selectedVideoSourceIds.delete(id));
     }
     renderHistoryTable(currentImageJobs);
+});
+selectAllVideoRetries.addEventListener("change", () => {
+    const retryableIds = retryableVideoJobIds();
+    if (selectAllVideoRetries.checked) {
+        retryableIds.forEach((id) => selectedVideoRetryIds.add(id));
+    } else {
+        retryableIds.forEach((id) => selectedVideoRetryIds.delete(id));
+    }
+    displayVideoJobs();
 });
 closeTaskDetail.addEventListener("click", closeSelectedTask);
 closeImagePreview.addEventListener("click", closeImagePreviewModal);
@@ -381,7 +445,7 @@ form.addEventListener("submit", async (event) => {
         const response = await fetch("/api/generations", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({prompt, portraitGenerationMode})
+            body: JSON.stringify({prompt, portraitGenerationMode, inspectQuality: inspectQualityInput?.checked !== false})
         });
         const payload = await readJson(response);
         if (!response.ok) {
@@ -903,7 +967,7 @@ function renderVideoHistoryTable(videoJobs) {
     if (videoJobs.length === 0) {
         const row = document.createElement("tr");
         const cell = document.createElement("td");
-        cell.colSpan = 10;
+        cell.colSpan = 11;
         cell.className = "history-empty";
         cell.textContent = "暂无视频生成记录。请先在图片生成列表中点击“生成视频”。";
         row.append(cell);
@@ -914,24 +978,35 @@ function renderVideoHistoryTable(videoJobs) {
         const sourceJob = jobsById.get(videoJob.sourceJobId);
         const row = document.createElement("tr");
         row.dataset.videoJobId = videoJob.id;
-        row.innerHTML = "<td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>";
+        row.innerHTML = "<td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>";
         const cells = row.querySelectorAll("td");
-        cells[0].textContent = formatTime(videoJob.createdAt);
-        cells[1].textContent = sourceJob?.prompt || videoJob.sourceJobId;
-        cells[1].title = cells[1].textContent;
-        cells[2].textContent = videoJob.sourceVideoFileName || "等待选择";
+        const retryCheckbox = document.createElement("input");
+        retryCheckbox.type = "checkbox";
+        retryCheckbox.ariaLabel = `选择重新生成视频任务：${videoJob.id}`;
+        retryCheckbox.checked = selectedVideoRetryIds.has(videoJob.id);
+        retryCheckbox.disabled = videoJob.status !== "FAILED" || batchVideoRetrySubmitting;
+        retryCheckbox.addEventListener("change", () => {
+            if (retryCheckbox.checked) selectedVideoRetryIds.add(videoJob.id);
+            else selectedVideoRetryIds.delete(videoJob.id);
+            updateBatchVideoRetryControls();
+        });
+        cells[0].append(retryCheckbox);
+        cells[1].textContent = formatTime(videoJob.createdAt);
+        cells[2].textContent = sourceJob?.prompt || videoJob.sourceJobId;
         cells[2].title = cells[2].textContent;
-        cells[3].textContent = videoStatusLabel(videoJob.status);
-        cells[3].dataset.status = videoJob.status;
-        cells[4].textContent = videoJob.firstSegmentStatus || "等待";
-        cells[5].textContent = videoJob.secondSegmentStatus || "等待";
-        renderQualityScore(cells[6], videoJob.qualityReport?.overallScore, "视频");
-        cells[4].title = cells[4].textContent;
+        cells[3].textContent = videoJob.sourceVideoFileName || "等待选择";
+        cells[3].title = cells[3].textContent;
+        cells[4].textContent = videoStatusLabel(videoJob.status);
+        cells[4].dataset.status = videoJob.status;
+        cells[5].textContent = videoJob.firstSegmentStatus || "等待";
+        cells[6].textContent = videoJob.secondSegmentStatus || "等待";
+        renderQualityScore(cells[7], videoJob.qualityReport?.overallScore, "视频");
         cells[5].title = cells[5].textContent;
-        renderHistoryVideo(cells[7], videoJob);
-        renderVideoExecutionResult(cells[8], videoJob);
+        cells[6].title = cells[6].textContent;
+        renderHistoryVideo(cells[8], videoJob);
+        renderVideoExecutionResult(cells[9], videoJob);
 
-        const actions = cells[9];
+        const actions = cells[10];
         if (sourceJob) {
             const sourceButton = document.createElement("button");
             sourceButton.type = "button";
@@ -966,6 +1041,28 @@ function renderVideoHistoryTable(videoJobs) {
         }
         videoHistoryBody.append(row);
     });
+    updateBatchVideoRetryControls();
+}
+
+function retryableVideoJobIds() {
+    return currentVideoJobs
+        .filter((videoJob) => videoJob.status === "FAILED")
+        .map((videoJob) => videoJob.id);
+}
+
+function updateBatchVideoRetryControls() {
+    const retryableIds = retryableVideoJobIds();
+    const retryableSet = new Set(retryableIds);
+    [...selectedVideoRetryIds].forEach((id) => {
+        if (!retryableSet.has(id)) selectedVideoRetryIds.delete(id);
+    });
+    const selectedCount = selectedVideoRetryIds.size;
+    selectedVideoRetryCount.textContent = `已选 ${selectedCount} 项`;
+    batchRetryVideo.textContent = selectedCount > 0 ? `批量重新生成（${selectedCount}）` : "批量重新生成";
+    batchRetryVideo.disabled = selectedCount === 0 || batchVideoRetrySubmitting;
+    selectAllVideoRetries.disabled = retryableIds.length === 0 || batchVideoRetrySubmitting;
+    selectAllVideoRetries.checked = retryableIds.length > 0 && selectedCount === retryableIds.length;
+    selectAllVideoRetries.indeterminate = selectedCount > 0 && selectedCount < retryableIds.length;
 }
 
 function renderVideoExecutionResult(cell, videoJob) {
@@ -2616,12 +2713,27 @@ function renderMyScripts() {
             settingsChild.textContent = "剧本设定";
             settingsChild.addEventListener("click", event => { event.stopPropagation(); selectedMyScriptId = project.id; selectedMyScriptSection = "settings"; selectedMyScriptEpisodeId = null; selectedMyScriptReplicationVersionId = null; expandedMyScriptProjects.add(project.id); renderMyScripts(); });
             children.append(settingsChild);
-            (project.episodes || []).forEach(episode => {
+            const episodes = project.episodes || [];
+            const latestEpisodeNumber = episodes.reduce((max, item) => Math.max(max, Number(item.number) || 0), 0);
+            episodes.forEach(episode => {
+                const row = document.createElement("div"); row.className = "my-script-tree-episode-row";
                 const child = document.createElement("button"); child.type = "button"; child.className = `my-script-tree-episode ${selectedMyScriptSection === episode.id || episode.id === selectedMyScriptEpisodeId ? "is-selected" : ""}`;
                 const defaultTitle = `第${episode.number}集`; const episodeTitle = episode.title && episode.title !== defaultTitle ? `${defaultTitle} · ${episode.title}` : defaultTitle;
                 child.textContent = `${episodeTitle} · ${shortDramaStatusLabel(episode.status)}`;
-                child.addEventListener("click", event => { event.stopPropagation(); selectedMyScriptId = project.id; selectedMyScriptEpisodeId = episode.id; selectedMyScriptReplicationVersionId = null; selectedMyScriptSection = episode.id; expandedMyScriptProjects.add(project.id); renderMyScripts(); }); children.append(child);
-            }); group.append(children);
+                child.addEventListener("click", event => { event.stopPropagation(); selectedMyScriptId = project.id; selectedMyScriptEpisodeId = episode.id; selectedMyScriptReplicationVersionId = null; selectedMyScriptSection = episode.id; expandedMyScriptProjects.add(project.id); renderMyScripts(); });
+                row.append(child);
+                if (Number(episode.number) === latestEpisodeNumber) {
+                    const remove = document.createElement("button"); remove.type = "button"; remove.className = "my-script-tree-delete"; remove.textContent = "删除"; remove.title = "删除最后一集"; remove.setAttribute("aria-label", `删除第${episode.number}集`);
+                    remove.addEventListener("click", event => { event.stopPropagation(); deleteMyScriptEpisode(episode.id, project.id, remove); }); row.append(remove);
+                }
+                children.append(row);
+            });
+            const batchActions = document.createElement("div"); batchActions.className = "my-script-tree-batch";
+            const batchCount = document.createElement("input"); batchCount.type = "number"; batchCount.min = "1"; batchCount.max = "50"; batchCount.step = "1"; batchCount.value = "10"; batchCount.title = "要连续生成的集数"; batchCount.setAttribute("aria-label", "批量生成集数");
+            const batchButton = document.createElement("button"); batchButton.type = "button"; batchButton.textContent = "批量生成剧集"; batchButton.title = "上一集完成后自动继续生成下一集";
+            const batchStatus = document.createElement("small"); batchStatus.className = "my-script-tree-batch-status";
+            batchButton.addEventListener("click", event => { event.stopPropagation(); startMyScriptBatch(project.id, batchCount, batchButton, batchStatus); });
+            batchActions.append(batchCount, batchButton, batchStatus); children.append(batchActions); group.append(children);
         }
         myScriptList.append(group);
     });
@@ -2695,6 +2807,10 @@ function renderMyScriptDetail(project) {
     const summary = document.createElement("section"); summary.className = "my-script-episode-summary"; summary.hidden = !selected.summary;
     const summaryLabel = document.createElement("strong"); summaryLabel.textContent = "本集概述";
     const summaryText = document.createElement("p"); summaryText.textContent = selected.summary || ""; summary.append(summaryLabel, summaryText);
+    const contentHeading = document.createElement("div"); contentHeading.className = "my-script-content-heading";
+    const contentLabel = document.createElement("strong"); contentLabel.textContent = "剧情内容";
+    const copyContent = document.createElement("button"); copyContent.type = "button"; copyContent.textContent = "复制内容"; copyContent.disabled = !selected.content;
+    copyContent.addEventListener("click", () => copyText(selected.content || "", copyContent)); contentHeading.append(contentLabel, copyContent);
     const content = document.createElement("div"); content.className = "my-script-episode-content"; content.textContent = selected.content || "该集正在生成，请稍后刷新。";
     const replicate = document.createElement("button"); replicate.type = "button"; replicate.textContent = "剧本翻拍"; replicate.disabled = !selected.content; replicate.addEventListener("click", () => openScriptReplication(selected.id, replicate));
     const rewrite = document.createElement("button"); rewrite.type = "button"; rewrite.textContent = "重写本集"; rewrite.disabled = !selected.content || ["QUEUED", "RUNNING"].includes(selected.status);
@@ -2707,9 +2823,55 @@ function renderMyScriptDetail(project) {
     rewriteActions.append(cancelRewrite, submitRewrite); rewritePanel.append(rewriteLabel, rewriteActions);
     rewrite.addEventListener("click", () => { rewritePanel.hidden = false; rewriteIdea.focus(); });
     const episodeActions = document.createElement("div"); episodeActions.className = "my-script-episode-actions"; episodeActions.append(replicate, rewrite);
-    myScriptDetail.append(message, summary, content, episodeActions, rewritePanel);
+    myScriptDetail.append(message, summary, contentHeading, content, episodeActions, rewritePanel);
     renderMyScriptPromptHistory(selected, project, myScriptDetail);
     renderMyScriptReplicationHistory(selected, myScriptDetail);
+}
+
+async function startBatchVideoRetry() {
+    const videoJobIds = [...selectedVideoRetryIds];
+    if (!videoJobIds.length || batchVideoRetrySubmitting) return;
+    const jobsToRetry = currentVideoJobs.filter((job) => videoJobIds.includes(job.id));
+    batchVideoRetrySubmitting = true;
+    jobsToRetry.forEach((job) => {
+        pendingVideoJobsBySource.set(job.sourceJobId, {
+            ...job,
+            id: `pending-retry-${job.id}`,
+            status: "QUEUED",
+            message: "失败视频正在重新加入生成队列",
+            error: null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        });
+        selectedVideoRetryIds.delete(job.id);
+    });
+    videoHistoryMessage.textContent = `正在重新提交 ${videoJobIds.length} 条失败或中断的视频任务。`;
+    displayVideoJobs();
+    try {
+        const response = await fetch("/api/video-generations/retry-batch", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({videoJobIds})
+        });
+        const payload = await readJson(response);
+        if (!response.ok) throw new Error(payload.message || `批量重新生成失败（HTTP ${response.status}）`);
+        payload.forEach((videoJob) => {
+            pendingVideoJobsBySource.delete(videoJob.sourceJobId);
+            currentVideoJobs = currentVideoJobs.filter((current) => current.id !== videoJob.id);
+            currentVideoJobs.unshift(videoJob);
+            videoJobsBySource.set(videoJob.sourceJobId, videoJob);
+        });
+        videoHistoryMessage.textContent = `${payload.length} 条视频任务已重新加入生成队列。`;
+        await loadHistory();
+    } catch (error) {
+        jobsToRetry.forEach((job) => pendingVideoJobsBySource.delete(job.sourceJobId));
+        videoJobIds.forEach((id) => selectedVideoRetryIds.add(id));
+        videoHistoryMessage.textContent = `批量重新生成失败：${error.message || error}`;
+        displayVideoJobs();
+    } finally {
+        batchVideoRetrySubmitting = false;
+        updateBatchVideoRetryControls();
+    }
 }
 
 function renderMyScriptPromptHistory(episode, project, container) {
@@ -2778,6 +2940,59 @@ async function continueMyScript(projectId, button, first = false) {
     button.disabled = true; const originalLabel = button.textContent; button.textContent = "正在提交…";
     try { const response = await fetch(`/api/my-scripts/${projectId}/episodes${first ? "/first" : ""}`, {method: "POST"}); const episode = await readJson(response); if (!response.ok) throw new Error(episode.message || "剧情推演提交失败"); selectedMyScriptEpisodeId = episode.id; selectedMyScriptSection = episode.id; await loadMyScripts(); pollMyScriptEpisode(projectId, episode.id); }
     catch (error) { window.alert(error.message || "续写提交失败"); } finally { button.disabled = false; button.textContent = originalLabel; }
+}
+
+async function deleteMyScriptEpisode(episodeId, projectId, button) {
+    if (!window.confirm("确定删除这一集及其提示词、资产和复刻记录吗？只能删除最后一集。")) return;
+    button.disabled = true;
+    try {
+        const response = await fetch(`/api/my-scripts/episodes/${episodeId}`, {method: "DELETE"});
+        const payload = await readJson(response);
+        if (!response.ok) throw new Error(payload.message || "删除剧集失败");
+        if (selectedMyScriptSection === episodeId || selectedMyScriptEpisodeId === episodeId) {
+            selectedMyScriptSection = "settings";
+            selectedMyScriptEpisodeId = null;
+            selectedMyScriptReplicationVersionId = null;
+        }
+        await loadMyScripts();
+    } catch (error) {
+        window.alert(error.message || "删除剧集失败");
+        button.disabled = false;
+    }
+}
+
+async function startMyScriptBatch(projectId, input, button, statusElement) {
+    const count = Math.max(1, Math.min(50, Number.parseInt(input?.value, 10) || 10));
+    if (input) input.value = String(count);
+    button.disabled = true;
+    if (statusElement) statusElement.textContent = "正在提交…";
+    try {
+        const response = await fetch(`/api/my-scripts/${projectId}/episodes/batch`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({count})});
+        const batch = await readJson(response);
+        if (!response.ok) throw new Error(batch.message || "批量生成提交失败");
+        if (statusElement) statusElement.textContent = batch.message || `已提交 ${count} 集`;
+        await loadMyScripts();
+        pollMyScriptBatch(projectId, batch.id, statusElement);
+    } catch (error) {
+        if (statusElement) statusElement.textContent = error.message || "批量生成提交失败";
+    } finally { button.disabled = false; }
+}
+
+async function pollMyScriptBatch(projectId, batchId, statusElement) {
+    for (let attempt = 0; attempt < 1800; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        try {
+            const response = await fetch(`/api/my-scripts/episode-batches/${batchId}`, {cache: "no-store"});
+            const batch = await readJson(response);
+            if (!response.ok) throw new Error(batch.message || "读取批量任务失败");
+            if (statusElement) statusElement.textContent = batch.message || `${batch.completedCount || 0}/${batch.targetCount || 0}`;
+            await loadMyScripts();
+            if (["SUCCESS", "FAILED", "CANCELLED"].includes(batch.status)) return;
+        } catch (error) {
+            if (statusElement) statusElement.textContent = error.message || "读取批量任务失败";
+            return;
+        }
+    }
 }
 
 async function pollMyScriptEpisode(projectId, episodeId) {
@@ -2871,18 +3086,24 @@ function renderScriptReplication(segments, assets, episode, episodeMaterial = nu
     const materialItems = [["人物与服装装束", episodeMaterial?.charactersWardrobe], ["环境与场面氛围", episodeMaterial?.environment], ["本集主要剧情", episodeMaterial?.plot], ["与上一集连续性", episodeMaterial?.continuity]];
     materialItems.forEach(([label, value]) => { const item = document.createElement("article"); const name = document.createElement("strong"); name.textContent = label; const text = document.createElement("p"); text.textContent = value || "暂无资料"; item.append(name, text); materialGrid.append(item); });
     materialPanel.append(materialGrid);
-    const environmentAction = document.createElement("div"); environmentAction.className = "replication-card-actions";
+    const environmentAction = document.createElement("div"); environmentAction.className = "replication-environment-actions";
+    const environmentPromptLabel = document.createElement("label"); environmentPromptLabel.className = "replication-environment-prompt"; environmentPromptLabel.textContent = "环境提示词";
+    const environmentPrompt = document.createElement("textarea"); environmentPrompt.rows = 3; environmentPrompt.placeholder = "描述场景时代、空间结构、光线、材质、镜头方向和首尾帧需要保持的连续元素"; environmentPrompt.value = episodeMaterial?.environment || ""; environmentPromptLabel.append(environmentPrompt);
+    const environmentInputLabel = document.createElement("label"); environmentInputLabel.className = "replication-environment-upload"; environmentInputLabel.textContent = "上传环境参考图（可多选）";
+    const environmentInput = document.createElement("input"); environmentInput.type = "file"; environmentInput.accept = "image/*"; environmentInput.multiple = true; environmentInputLabel.append(environmentInput);
+    const environmentUploadPreview = document.createElement("div"); environmentUploadPreview.className = "replication-image-preview";
     const environmentButton = document.createElement("button"); environmentButton.type = "button"; environmentButton.textContent = "生成本集环境图";
     const savedEnvironment = (episodeAssets || []).find(asset => asset.assetType === "ENVIRONMENT");
     const savedEnvironmentImage = parseStoredImages(savedEnvironment?.imageSourcesJson)[0];
     const showEnvironment = image => { if (!image) return; const imageElement = document.createElement("img"); imageElement.className = "replication-environment-image"; imageElement.src = image; imageElement.alt = "本集环境图"; const link = document.createElement("a"); link.href = image; link.download = "本集环境图.png"; link.textContent = "查看 / 下载"; environmentAction.append(imageElement, link); };
     if (savedEnvironmentImage) showEnvironment(savedEnvironmentImage);
-    environmentButton.addEventListener("click", async () => { environmentButton.disabled = true; environmentButton.textContent = "生成中…"; try { const response = await fetch(`/api/my-scripts/episodes/${episode.id}/assets/environment`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({prompt: episodeMaterial?.environment || "本集环境"})}); const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "生成环境图失败"); environmentAction.querySelectorAll("img, a").forEach(node => node.remove()); showEnvironment(payload.image); } catch (error) { window.alert(error.message || "生成环境图失败"); } finally { environmentButton.disabled = false; environmentButton.textContent = "生成本集环境图"; } });
-    environmentAction.prepend(environmentButton); materialPanel.append(environmentAction); scriptReplicationContent.append(materialPanel);
+    environmentInput.addEventListener("change", async () => { environmentUploadPreview.replaceChildren(); if (environmentInput.files.length > 16) { window.alert("本集环境图最多支持 16 张参考图"); environmentInput.value = ""; return; } const images = await Promise.all([...environmentInput.files].map(readFileAsDataUrl)); images.forEach(url => { const img = document.createElement("img"); img.src = url; img.alt = "环境参考图"; environmentUploadPreview.append(img); }); });
+    environmentButton.addEventListener("click", async () => { environmentButton.disabled = true; environmentButton.textContent = "生成中…"; try { const imageSources = environmentInput.files.length ? await Promise.all([...environmentInput.files].map(readFileAsDataUrl)) : []; const response = await fetch(`/api/my-scripts/episodes/${episode.id}/assets/environment`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({prompt: environmentPrompt.value, imageSources})}); const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "生成环境图失败"); environmentAction.querySelectorAll("img, a").forEach(node => node.remove()); showEnvironment(payload.image); } catch (error) { window.alert(error.message || "生成环境图失败"); } finally { environmentButton.disabled = false; environmentButton.textContent = "生成本集环境图"; } });
+    environmentAction.append(environmentPromptLabel, environmentInputLabel, environmentUploadPreview, environmentButton); materialPanel.append(environmentAction); scriptReplicationContent.append(materialPanel);
 
     const assetPanel = document.createElement("section"); assetPanel.className = "replication-assets";
     const assetTitle = document.createElement("h4"); assetTitle.textContent = "步骤 01 · 剧集资产生成"; assetPanel.append(assetTitle);
-    const assetHint = document.createElement("p"); assetHint.textContent = "先生成或上传人物基础图，再按本集服装设定生成专属人物图；段落视频会自动复用已保存资产。"; assetPanel.append(assetHint);
+    const assetHint = document.createElement("p"); assetHint.textContent = "可一次选择多张参考图，点击生成后会全部提交给图片接口；未上传时才使用人物基础图。段落视频会自动复用已保存资产。"; assetPanel.append(assetHint);
     const assetGrid = document.createElement("div"); assetGrid.className = "replication-asset-grid";
     const characterSpecs = parseEpisodeCharacterSpecs(episodeMaterial?.charactersWardrobe);
     const names = characterNamesForReplication(project, episode, assets, episodeMaterial);
@@ -2902,7 +3123,7 @@ function renderScriptReplication(segments, assets, episode, episodeMaterial = nu
         if (episodeImage) { const img = document.createElement("img"); img.src = episodeImage; img.alt = `${name} 本集人物图`; preview.prepend(img); }
         const wardrobe = document.createElement("textarea"); wardrobe.rows = 4; wardrobe.placeholder = "只填写本角色本集服装、发型、配饰与状态设定"; wardrobe.value = characterSpecs.get(name) || "请填写本角色本集的服装、发型、配饰、妆容和状态";
         const generateAsset = document.createElement("button"); generateAsset.type = "button"; generateAsset.textContent = "生成本集人物图";
-        generateAsset.addEventListener("click", async () => { generateAsset.disabled = true; generateAsset.textContent = "生成中…"; try { const response = await fetch(`/api/my-scripts/episodes/${episode.id}/assets/character`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({characterName: name, prompt: wardrobe.value})}); const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "生成剧集人物图失败"); const img = document.createElement("img"); img.src = payload.image; img.alt = `${name} 本集人物图`; const link = document.createElement("a"); link.href = payload.image; link.download = `${name}-本集人物图.png`; link.textContent = "查看 / 下载"; preview.prepend(link, img); } catch (error) { window.alert(error.message || "生成剧集人物图失败"); } finally { generateAsset.disabled = false; generateAsset.textContent = "生成本集人物图"; } });
+        generateAsset.addEventListener("click", async () => { generateAsset.disabled = true; generateAsset.textContent = "生成中…"; try { if (input.files.length > 16) throw new Error("本集人物图最多支持 16 张参考图"); const imageSources = input.files.length ? await Promise.all([...input.files].map(readFileAsDataUrl)) : []; const response = await fetch(`/api/my-scripts/episodes/${episode.id}/assets/character`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({characterName: name, prompt: wardrobe.value, imageSources})}); const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "生成剧集人物图失败"); const img = document.createElement("img"); img.src = payload.image; img.alt = `${name} 本集人物图`; const link = document.createElement("a"); link.href = payload.image; link.download = `${name}-本集人物图.png`; link.textContent = "查看 / 下载"; preview.prepend(link, img); } catch (error) { window.alert(error.message || "生成剧集人物图失败"); } finally { generateAsset.disabled = false; generateAsset.textContent = "生成本集人物图"; } });
         input.addEventListener("change", async () => { const images = await Promise.all([...input.files].map(readFileAsDataUrl)); preview.replaceChildren(); images.forEach(url => { const img = document.createElement("img"); img.src = url; preview.append(img); }); });
         item.append(wardrobe, generateAsset, input, preview); assetGrid.append(item); fields.push({name, input, existing, index});
     });
@@ -3006,7 +3227,7 @@ async function pollScriptReplicationVideo(taskId, stateElement, button, output) 
 }
 
 function normalizeView(view) {
-    return ["workbench", "tasks", "video-canvas", "dialogue-extraction", "video-bgm", "direct-outfit", "audit-redraw", "gpt-images", "video-script", "short-drama-director", "my-scripts", "script-replication", "knowledge", "logs", "account-settings", "menu-settings"].includes(view) ? view : "workbench";
+    return ["workbench", "tasks", "video-canvas", "video-browser", "dialogue-extraction", "video-bgm", "direct-outfit", "audit-redraw", "gpt-images", "video-script", "short-drama-director", "my-scripts", "script-replication", "knowledge", "logs", "account-settings", "menu-settings"].includes(view) ? view : "workbench";
 }
 
 function applyMenuOptions(options) {
@@ -3079,6 +3300,7 @@ function activateView(view, updateHash = false) {
     }
     if (currentView === "account-settings") loadAccountSettings();
     if (currentView === "menu-settings") loadMenuConfig();
+    if (currentView === "video-browser") loadVideoBrowserProfiles();
     if (currentView === "short-drama-director") loadShortDramaTasks();
     if (currentView === "my-scripts") loadMyScripts();
     if (currentView === "script-replication" && selectedMyScriptEpisodeId) loadScriptReplication(selectedMyScriptEpisodeId);
@@ -4287,6 +4509,149 @@ async function submitGptImages(event) {
         renderGptImages(payload); pollGptImages(payload.id);
     } catch (error) { gptImagesMessage.textContent = error.message || "文生图失败"; }
     finally { gptImagesSubmit.disabled = false; }
+}
+
+async function loadVideoBrowserProfiles() {
+    if (!videoBrowserList) return;
+    try {
+        const response = await fetch("/api/video-browser", {cache: "no-store"});
+        const payload = await readJson(response);
+        if (!response.ok) throw new Error(payload.message || "读取浏览器实例失败");
+        videoBrowserAccounts = Array.isArray(payload) ? payload : [];
+        renderVideoBrowserProfiles(videoBrowserAccounts);
+        if (videoBrowserListMessage) videoBrowserListMessage.textContent = payload.length ? `共 ${payload.length} 个账号` : "暂无账号，请点击左侧＋添加";
+        if (!selectedVideoBrowserId && videoBrowserAccounts.length) selectEmbeddedBrowser(videoBrowserAccounts[0]);
+    } catch (error) {
+        if (videoBrowserListMessage) videoBrowserListMessage.textContent = error.message || "读取浏览器实例失败";
+    }
+}
+
+async function submitVideoBrowserProfile(event) {
+    event.preventDefault();
+    if (!videoBrowserName?.value.trim()) return;
+    videoBrowserFormMessage.textContent = "正在创建…";
+    try {
+        const response = await fetch("/api/video-browser", {
+            method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                name: videoBrowserName.value.trim(), accountHint: videoBrowserAccountHint.value.trim(),
+                extensionDirectory: videoBrowserExtension.value.trim(), browserExecutable: videoBrowserExecutable.value.trim(),
+                startUrl: videoBrowserStartUrl.value.trim()
+            })
+        });
+        const payload = await readJson(response);
+        if (!response.ok) throw new Error(payload.message || "创建浏览器实例失败");
+        videoBrowserProfileForm.reset();
+        videoBrowserStartUrl.value = "https://www.dola.com/";
+        videoBrowserFormMessage.textContent = "账号已创建，正在打开嵌入式浏览器…";
+        videoBrowserProfileForm.hidden = true;
+        await loadVideoBrowserProfiles();
+    } catch (error) { videoBrowserFormMessage.textContent = error.message || "创建浏览器实例失败"; }
+}
+
+function renderVideoBrowserProfiles(items) {
+    videoBrowserList.replaceChildren();
+    if (!items.length) { const empty = document.createElement("p"); empty.className = "video-browser-account-empty"; empty.textContent = "还没有账号，点击上方＋添加"; videoBrowserList.append(empty); return; }
+    items.forEach(item => {
+        const row = document.createElement("button"); row.type = "button"; row.className = `video-browser-account ${item.id === selectedVideoBrowserId ? "is-selected" : ""}`; row.addEventListener("click", () => selectEmbeddedBrowser(item));
+        const avatar = document.createElement("span"); avatar.className = "video-browser-account-avatar"; avatar.textContent = (item.name || "D").slice(0, 1).toUpperCase();
+        const copy = document.createElement("span"); copy.className = "video-browser-account-copy"; const strong = document.createElement("strong"); strong.textContent = item.name; const small = document.createElement("small"); small.textContent = item.accountHint || "Dola 独立账号"; copy.append(strong, small);
+        const state = document.createElement("span"); state.className = `video-browser-account-state ${item.status === "RUNNING" ? "is-running" : ""}`; state.textContent = item.status === "RUNNING" ? "●" : "○"; row.append(avatar, copy, state); videoBrowserList.append(row);
+    });
+}
+
+async function selectEmbeddedBrowser(item) {
+    const token = ++videoBrowserSwitchToken;
+    selectedVideoBrowserId = item.id;
+    if (videoBrowserScreenshotTimer) { clearInterval(videoBrowserScreenshotTimer); videoBrowserScreenshotTimer = null; }
+    videoBrowserScreenshotInFlight = false;
+    renderVideoBrowserProfiles(videoBrowserAccounts);
+    videoBrowserCurrentTitle.textContent = item.name; videoBrowserCurrentUrl.textContent = "正在打开…";
+    try {
+        const response = await fetch(`/api/video-browser/${item.id}/open`, {method: "POST"}); const payload = await readJson(response);
+        if (!response.ok) throw new Error(payload.message || "打开嵌入式浏览器失败");
+        if (token !== videoBrowserSwitchToken || selectedVideoBrowserId !== item.id) return;
+        videoBrowserCurrentUrl.textContent = payload.url || item.startUrl;
+        startEmbeddedBrowserScreenshots(item.id);
+        item.status = "RUNNING";
+        renderVideoBrowserProfiles(videoBrowserAccounts);
+    } catch (error) { videoBrowserCurrentUrl.textContent = error.message || "打开失败"; showEmbeddedBrowserEmpty("浏览器启动失败", error.message || "请检查 Chrome 路径和插件目录"); }
+}
+
+function startEmbeddedBrowserScreenshots(id) {
+    if (videoBrowserScreenshotTimer) clearInterval(videoBrowserScreenshotTimer);
+    const refresh = async () => {
+        if (selectedVideoBrowserId !== id || videoBrowserScreenshotInFlight) return;
+        videoBrowserScreenshotInFlight = true;
+        try {
+            const response = await fetch(`/api/video-browser/${id}/screenshot?t=${Date.now()}`, {cache: "no-store"});
+            if (!response.ok) throw new Error("截图读取失败");
+            const blob = await response.blob();
+            if (selectedVideoBrowserId !== id) return;
+            const image = videoBrowserViewport.querySelector("img") || document.createElement("img");
+            if (!image.parentNode) {
+                videoBrowserViewport.replaceChildren(image);
+                image.alt = "嵌入式 Dola 浏览器";
+                image.draggable = false;
+            }
+            const nextUrl = URL.createObjectURL(blob);
+            const previousUrl = videoBrowserScreenshotUrl;
+            videoBrowserScreenshotUrl = nextUrl;
+            image.src = nextUrl;
+            if (previousUrl) URL.revokeObjectURL(previousUrl);
+        } catch (_) {
+            // Keep the last good frame visible; the next poll retries quietly.
+        } finally {
+            videoBrowserScreenshotInFlight = false;
+        }
+    };
+    refresh(); videoBrowserScreenshotTimer = setInterval(refresh, 400);
+}
+
+function showEmbeddedBrowserEmpty(title, message) { videoBrowserViewport.replaceChildren(); const empty = document.createElement("div"); empty.className = "video-browser-empty"; const strong = document.createElement("strong"); strong.textContent = title; const span = document.createElement("span"); span.textContent = message; empty.append(strong, span); videoBrowserViewport.append(empty); }
+
+async function sendEmbeddedBrowserInput(input) {
+    if (!selectedVideoBrowserId) return;
+    const id = selectedVideoBrowserId;
+    videoBrowserInputQueue = videoBrowserInputQueue.catch(() => {}).then(async () => {
+        try {
+            await fetch(`/api/video-browser/${id}/input`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(input)});
+            // Pull the next frame immediately after an input so typing/backspace
+            // does not wait for the normal polling interval.
+            if (selectedVideoBrowserId === id && videoBrowserScreenshotTimer) {
+                window.setTimeout(() => {
+                    if (selectedVideoBrowserId === id) startEmbeddedBrowserScreenshots(id);
+                }, 30);
+            }
+        } catch (_) { /* next screenshot reports failure */ }
+    });
+    return videoBrowserInputQueue;
+}
+
+async function copyEmbeddedSelection() {
+    if (!selectedVideoBrowserId) return;
+    try {
+        await videoBrowserInputQueue.catch(() => {});
+        const response = await fetch(`/api/video-browser/${selectedVideoBrowserId}/selection`, {cache: "no-store"});
+        const payload = await response.json();
+        if (response.ok && payload.text && navigator.clipboard?.writeText) await navigator.clipboard.writeText(payload.text);
+    } catch (_) { /* clipboard permissions are browser-controlled */ }
+}
+
+async function pasteEmbeddedClipboard() {
+    if (!selectedVideoBrowserId || !navigator.clipboard?.readText) return;
+    try {
+        const text = await navigator.clipboard.readText();
+        if (text) await sendEmbeddedBrowserInput({type: "type", text});
+    } catch (_) { /* clipboard permissions are browser-controlled */ }
+}
+
+async function removeVideoBrowser(item) {
+    if (!window.confirm(`移除“${item.name}”的实例配置？浏览器 Profile 文件不会自动删除。`)) return;
+    const response = await fetch(`/api/video-browser/${item.id}`, {method: "DELETE"});
+    if (!response.ok) { const payload = await readJson(response); if (videoBrowserListMessage) videoBrowserListMessage.textContent = payload.message || "移除失败"; return; }
+    if (selectedVideoBrowserId === item.id) { selectedVideoBrowserId = null; if (videoBrowserScreenshotTimer) clearInterval(videoBrowserScreenshotTimer); showEmbeddedBrowserEmpty("选择左侧账号", "浏览器会在这里加载，账号之间完全隔离。"); }
+    await loadVideoBrowserProfiles();
 }
 async function pollGptImages(id) {
     for (let i = 0; i < 180; i++) {

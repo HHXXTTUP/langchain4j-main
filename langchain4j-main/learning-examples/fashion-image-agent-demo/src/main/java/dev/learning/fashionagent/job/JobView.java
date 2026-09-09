@@ -34,9 +34,11 @@ public record JobView(
         String error,
         String errorDetails,
         Instant createdAt,
-        Instant updatedAt) {
+        Instant updatedAt,
+        Boolean inspectQuality) {
 
     public JobView {
         portraitGenerationMode = PortraitGenerationMode.defaultIfNull(portraitGenerationMode);
+        inspectQuality = inspectQuality == null || inspectQuality;
     }
 }

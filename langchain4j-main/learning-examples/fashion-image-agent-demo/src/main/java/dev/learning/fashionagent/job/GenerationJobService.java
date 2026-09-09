@@ -120,12 +120,20 @@ public class GenerationJobService {
     }
 
     public UUID create(String prompt, PortraitGenerationMode requestedMode) {
+        return create(prompt, requestedMode, true);
+    }
+
+    public UUID create(String prompt, PortraitGenerationMode requestedMode, boolean inspectQuality) {
         String normalizedPrompt = validatePrompt(prompt);
         PortraitGenerationMode mode = PortraitGenerationMode.defaultIfNull(requestedMode);
-        return enqueue(normalizedPrompt, mode);
+        return enqueue(normalizedPrompt, mode, inspectQuality);
     }
 
     public List<UUID> createBatch(List<String> prompts, PortraitGenerationMode requestedMode) {
+        return createBatch(prompts, requestedMode, true);
+    }
+
+    public List<UUID> createBatch(List<String> prompts, PortraitGenerationMode requestedMode, boolean inspectQuality) {
         if (prompts == null || prompts.isEmpty()) {
             throw new IllegalArgumentException("描述词不能为空");
         }
@@ -138,12 +146,12 @@ public class GenerationJobService {
                 .toList();
         PortraitGenerationMode mode = PortraitGenerationMode.defaultIfNull(requestedMode);
         return normalizedPrompts.stream()
-                .map(prompt -> enqueue(prompt, mode))
+                .map(prompt -> enqueue(prompt, mode, inspectQuality))
                 .toList();
     }
 
-    private UUID enqueue(String normalizedPrompt, PortraitGenerationMode mode) {
-        GenerationJob job = new GenerationJob(UUID.randomUUID(), normalizedPrompt, mode);
+    private UUID enqueue(String normalizedPrompt, PortraitGenerationMode mode, boolean inspectQuality) {
+        GenerationJob job = new GenerationJob(UUID.randomUUID(), normalizedPrompt, mode, inspectQuality);
         jobs.put(job.id, job);
         persist(job);
         recordEvent(job, "JOB_CREATED", "任务已进入队列", Map.of(
@@ -233,29 +241,12 @@ public class GenerationJobService {
 
     public UUID restart(UUID id) {
         JobView source = get(id);
-        if (source.status() == JobStatus.RUNNING || source.status() == JobStatus.QUEUED) {
-            throw new IllegalStateException("任务仍在运行，请先停止后再重新启动");
+        if (source.status() != JobStatus.FAILED && source.status() != JobStatus.CANCELLED) {
+            throw new IllegalStateException("只有失败或已停止的任务可以重新生成");
         }
-        UUID restartedJobId = create(source.prompt(), source.portraitGenerationMode());
-        GenerationJob inMemorySource = jobs.get(id);
-        if (inMemorySource != null) {
-            recordEvent(
-                    inMemorySource,
-                    "JOB_RESTARTED",
-                    "已基于当前任务创建新的执行任务",
-                    Map.of("restartedJobId", restartedJobId.toString()));
-        } else {
-            historyRepository.appendEvent(
-                    id,
-                    new JobStepView(
-                            null,
-                            "JOB_RESTARTED",
-                            source.stage(),
-                            "已基于当前任务创建新的执行任务",
-                            toJson(Map.of("restartedJobId", restartedJobId.toString())),
-                            Instant.now()));
-        }
-        LOGGER.info("Fashion generation job {} restarted as {}", id, restartedJobId);
+        delete(id);
+        UUID restartedJobId = create(source.prompt(), source.portraitGenerationMode(), source.inspectQuality());
+        LOGGER.info("Failed fashion generation job {} was replaced by {}", id, restartedJobId);
         return restartedJobId;
     }
 
@@ -406,9 +397,7 @@ public class GenerationJobService {
         };
 
         try {
-            PipelineResult result = job.portraitGenerationMode == PortraitGenerationMode.ENHANCED
-                    ? pipeline.run(job.id, job.prompt, job.portraitGenerationMode, observer)
-                    : pipeline.run(job.id, job.prompt, observer);
+            PipelineResult result = pipeline.run(job.id, job.prompt, job.portraitGenerationMode, job.inspectQuality, observer);
             job.checkCancellation();
             if (experienceLearningService != null) {
                 job.transition(PipelineStage.RAG_LEARNING_EXPERIENCE, "正在提取已验证策略和遗漏修复规则，更新 RAG 知识库");
@@ -495,6 +484,7 @@ public class GenerationJobService {
         private final UUID id;
         private final String prompt;
         private final PortraitGenerationMode portraitGenerationMode;
+        private final boolean inspectQuality;
         private final Instant createdAt = Instant.now();
         private JobStatus status = JobStatus.QUEUED;
         private PipelineStage stage = PipelineStage.ACCEPTED;
@@ -518,10 +508,11 @@ public class GenerationJobService {
         private final List<JobStepView> events = new ArrayList<>();
         private long nextEventId = 1;
 
-        private GenerationJob(UUID id, String prompt, PortraitGenerationMode portraitGenerationMode) {
+        private GenerationJob(UUID id, String prompt, PortraitGenerationMode portraitGenerationMode, boolean inspectQuality) {
             this.id = id;
             this.prompt = prompt;
             this.portraitGenerationMode = PortraitGenerationMode.defaultIfNull(portraitGenerationMode);
+            this.inspectQuality = inspectQuality;
         }
 
         synchronized void start() {
@@ -741,7 +732,8 @@ public class GenerationJobService {
                     error,
                     errorDetails,
                     createdAt,
-                    updatedAt);
+                    updatedAt,
+                    inspectQuality);
         }
     }
 

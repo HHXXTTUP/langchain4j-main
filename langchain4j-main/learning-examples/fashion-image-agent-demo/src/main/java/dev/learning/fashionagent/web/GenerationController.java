@@ -3,6 +3,7 @@ package dev.learning.fashionagent.web;
 import dev.learning.fashionagent.job.GenerationJobService;
 import dev.learning.fashionagent.job.GenerationPromptBatchParser;
 import dev.learning.fashionagent.job.JobView;
+import dev.learning.fashionagent.job.JobStatus;
 import dev.learning.fashionagent.job.JobStepView;
 import dev.learning.fashionagent.pipeline.PortraitGenerationMode;
 import dev.learning.fashionagent.video.VideoGenerationService;
@@ -39,7 +40,8 @@ public class GenerationController {
         List<String> prompts = GenerationPromptBatchParser.parse(request == null ? null : request.prompt());
         List<UUID> ids = jobService.createBatch(
                 prompts,
-                request == null ? PortraitGenerationMode.STANDARD : request.portraitGenerationMode());
+                request == null ? PortraitGenerationMode.STANDARD : request.portraitGenerationMode(),
+                request == null || request.inspectQuality() == null || request.inspectQuality());
         return ResponseEntity.accepted()
                 .body(batchResponse(ids, prompts));
     }
@@ -70,6 +72,12 @@ public class GenerationController {
 
     @PostMapping("/{id}/restart")
     ResponseEntity<CreateGenerationResponse> restart(@PathVariable UUID id) {
+        JobStatus status = jobService.get(id).status();
+        if (status != JobStatus.FAILED && status != JobStatus.CANCELLED) {
+            throw new IllegalStateException("只有失败或已停止的任务可以重新生成");
+        }
+        videoGenerationService.validateDeletionBySourceJob(id);
+        videoGenerationService.deleteBySourceJob(id);
         UUID restartedId = jobService.restart(id);
         return ResponseEntity.accepted()
                 .body(batchResponse(List.of(restartedId), List.of(jobService.get(restartedId).prompt())));
@@ -115,7 +123,7 @@ public class GenerationController {
         return ResponseEntity.ok().contentType(mediaType).body(new FileSystemResource(image));
     }
 
-    record CreateGenerationRequest(String prompt, PortraitGenerationMode portraitGenerationMode) {}
+    record CreateGenerationRequest(String prompt, PortraitGenerationMode portraitGenerationMode, Boolean inspectQuality) {}
 
     record CreateGenerationResponse(
             UUID jobId,

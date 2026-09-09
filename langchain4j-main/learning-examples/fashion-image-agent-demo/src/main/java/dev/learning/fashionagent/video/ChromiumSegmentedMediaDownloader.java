@@ -59,7 +59,11 @@ public class ChromiumSegmentedMediaDownloader {
     }
 
     public boolean isAvailable() {
-        return properties.isChromiumFallbackEnabled() && locateExecutable().isPresent();
+        Optional<Path> executable = locateExecutable();
+        boolean available = properties.isChromiumFallbackEnabled() && executable.isPresent();
+        LOGGER.info("Chromium 分段下载器可用性 enabled={} executable={} available={}",
+                properties.isChromiumFallbackEnabled(), executable.orElse(null), available);
+        return available;
     }
 
     public void download(URI mediaUri, Map<String, String> sourceHeaders, Path target) throws IOException {
@@ -114,6 +118,7 @@ public class ChromiumSegmentedMediaDownloader {
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--disable-background-networking",
+                "--no-proxy-server",
                 "--disable-component-update",
                 "--disable-sync",
                 "--disable-web-security",
@@ -224,6 +229,12 @@ public class ChromiumSegmentedMediaDownloader {
             return Files.isRegularFile(configured) ? Optional.of(configured) : Optional.empty();
         }
         List<Path> candidates = new ArrayList<>();
+        // Keep an explicit Windows Edge path as a fallback.  On some JDK
+        // launches the ProgramFiles(x86) environment variable is not exposed
+        // even though Edge is installed there, which otherwise disables the
+        // segmented downloader and silently falls back to a stalled Java GET.
+        candidates.add(Path.of("C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"));
+        candidates.add(Path.of("C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe"));
         addCandidate(candidates, System.getenv("ProgramFiles(x86)"), "Microsoft/Edge/Application/msedge.exe");
         addCandidate(candidates, System.getenv("ProgramFiles"), "Microsoft/Edge/Application/msedge.exe");
         addCandidate(candidates, System.getenv("LOCALAPPDATA"), "Microsoft/Edge/Application/msedge.exe");
@@ -416,7 +427,11 @@ public class ChromiumSegmentedMediaDownloader {
         }
 
         private synchronized void fail(String message) {
-            if (failure == null) failure = message == null ? "unknown browser error" : message;
+            if (failure == null) {
+                failure = message == null || message.isBlank() ? "unknown browser error" : message;
+                LOGGER.warn("Chromium 分段下载失败 host={} reason={}",
+                        target, failure);
+            }
             finished.countDown();
         }
 
@@ -473,10 +488,16 @@ public class ChromiumSegmentedMediaDownloader {
                           const response=await fetch(mediaUrl,{headers:requestHeaders,cache:'no-store',credentials:'omit'});
                           let responseStart=offset,responseEnd=-1,responseTotal=-1;
                           if(response.status===206){
-                            const match=/bytes\\s+(\\d+)-(\\d+)\\/(\\d+)/i.exec(response.headers.get('content-range')||'');
-                            if(!match)throw new Error('missing Content-Range');
-                            responseStart=Number(match[1]);responseEnd=Number(match[2]);responseTotal=Number(match[3]);
-                            if(responseStart!==offset)throw new Error('unexpected range start '+responseStart);
+                            // COS does not expose Content-Range through CORS
+                            // (it only exposes ETag). The body is still a
+                            // valid range response, so do not fail merely
+                            // because that header is hidden from fetch().
+                            const match=/bytes\\s+(\\d+)-(\\d+)\\/(\\d+|\\*)/i.exec(response.headers.get('content-range')||'');
+                            if(match){
+                              responseStart=Number(match[1]);responseEnd=Number(match[2]);
+                              responseTotal=match[3]==='*'?-1:Number(match[3]);
+                              if(responseStart!==offset)throw new Error('unexpected range start '+responseStart);
+                            }
                           }else if(response.status===200&&offset===0){
                             fullResponse=true;
                             responseTotal=Number(response.headers.get('content-length')||'-1');
@@ -492,9 +513,13 @@ public class ChromiumSegmentedMediaDownloader {
                             await post('/chunk?offset='+(offset+responseBytes)+'&total='+total,part.value);
                             responseBytes+=part.value.byteLength;
                           }
-                          if(response.status===206&&responseBytes!==responseEnd-responseStart+1)
+                          if(response.status===206&&responseEnd>=responseStart&&responseBytes!==responseEnd-responseStart+1)
                             throw new Error('incomplete range response');
+                          if(response.status===206&&responseBytes<=0)throw new Error('empty range response');
                           offset+=responseBytes;
+                          // When Content-Range is hidden by CORS, a short
+                          // final range is the reliable end-of-file signal.
+                          if(response.status===206&&responseBytes<chunkBytes){total=offset;break;}
                           if(fullResponse){total=offset;break;}
                         }
                         await post('/done?total='+offset,new Uint8Array());

@@ -9,6 +9,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.Proxy;
 import java.net.URI;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -50,6 +51,9 @@ public class RunningHubClient {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(properties.getUploadConnectTimeout());
         requestFactory.setReadTimeout(properties.getUploadReadTimeout());
+        // RunningHub API/upload traffic is always direct.  In particular, do
+        // not inherit a machine-wide HTTP proxy configured for another service.
+        requestFactory.setProxy(Proxy.NO_PROXY);
         this.restClient = restClientBuilder
                 .requestFactory(requestFactory)
                 .baseUrl(properties.getBaseUrl().toString())
@@ -220,7 +224,7 @@ public class RunningHubClient {
                 .onStatus(HttpStatusCode::isError, this::throwApiError)
                 .body(byte[].class);
         if (data == null || data.length == 0) {
-            throw new RunningHubException("生成图片下载结果为空");
+            throw new RunningHubException("生成文件下载结果为空");
         }
         if (data.length > maxDownloadBytes) {
             throw new RunningHubException("生成文件超过允许大小：" + data.length + " bytes");
@@ -231,6 +235,42 @@ public class RunningHubClient {
 
     public Path downloadToFile(URI uri, Path target, long maxDownloadBytes) {
         return downloadToFile(uri, target, maxDownloadBytes, downloadRequestFactory());
+    }
+
+    /**
+     * Downloads a generated asset using the same byte[] RestClient path as image
+     * downloads, then atomically persists it to the requested target.  Some COS
+     * video objects intermittently reset or stall streaming responses; reading
+     * the response as a byte array has proved considerably more reliable for
+     * those objects and keeps the video path consistent with images.
+     */
+    public Path downloadToFileAsBytes(URI uri, Path target, long maxDownloadBytes) {
+        Path normalizedTarget = target.toAbsolutePath().normalize();
+        Path temporary = normalizedTarget.resolveSibling(normalizedTarget.getFileName() + ".bytes.part");
+        long startedAt = System.nanoTime();
+        LOGGER.info("生成文件字节下载开始 url={} target={} maxBytes={}", uri, normalizedTarget, maxDownloadBytes);
+        try {
+            Path parent = normalizedTarget.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            Files.deleteIfExists(temporary);
+            byte[] data = download(uri, maxDownloadBytes);
+            if (data == null || data.length == 0) {
+                throw new RunningHubException("生成文件字节下载结果为空");
+            }
+            Files.write(temporary, data);
+            Files.move(temporary, normalizedTarget, StandardCopyOption.REPLACE_EXISTING);
+            LOGGER.info("生成文件字节下载成功 url={} target={} size={} bytes elapsedMs={}",
+                    uri, normalizedTarget, data.length, elapsedMillis(startedAt));
+            return normalizedTarget;
+        } catch (IOException exception) {
+            deletePartialFile(temporary);
+            throw new RunningHubException("保存生成文件失败：" + normalizedTarget, exception);
+        } catch (RuntimeException exception) {
+            deletePartialFile(temporary);
+            throw exception;
+        }
     }
 
     /**
@@ -484,7 +524,11 @@ public class RunningHubClient {
                     + "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; "
                     + "Invoke-WebRequest -UseBasicParsing -Uri " + powerShellQuote(uri.toASCIIString())
                     + " -OutFile " + powerShellQuote(temporary.toString())
-                    + " -TimeoutSec " + timeoutSeconds;
+                    + " -TimeoutSec " + timeoutSeconds
+                    + (properties.isDownloadProxyConfigured()
+                            ? " -Proxy " + powerShellQuote("http://" + properties.getDownloadProxyHost().trim()
+                                    + ":" + properties.getDownloadProxyPort())
+                            : "");
             String encodedScript = Base64.getEncoder().encodeToString(
                     script.getBytes(StandardCharsets.UTF_16LE));
             List<String> command = List.of(
@@ -503,7 +547,7 @@ public class RunningHubClient {
                 throw new RunningHubException("生成文件 PowerShell 下载超时：" + uri);
             }
             String output = Files.exists(logFile)
-                    ? new String(Files.readAllBytes(logFile), StandardCharsets.ISO_8859_1).trim()
+                    ? diagnostic(Files.readString(logFile, StandardCharsets.ISO_8859_1))
                     : "";
             if (process.exitValue() != 0) {
                 throw new RunningHubException("生成文件 PowerShell 下载失败，exitCode="
@@ -532,6 +576,85 @@ public class RunningHubClient {
 
     private static String powerShellQuote(String value) {
         return "'" + value.replace("'", "''") + "'";
+    }
+
+    /**
+     * Uses the Windows curl implementation as an additional COS download path.
+     * curl and the JVM do not always share the same TLS/proxy behavior, so this
+     * is deliberately kept as a separate outer retry channel.
+     */
+    public Path downloadToFileViaCurl(URI uri, Path target, long maxDownloadBytes) {
+        Path normalizedTarget = target.toAbsolutePath().normalize();
+        Path temporary = normalizedTarget.resolveSibling(normalizedTarget.getFileName() + ".curl.part");
+        Path logFile = normalizedTarget.resolveSibling(normalizedTarget.getFileName() + ".curl.log");
+        long timeoutSeconds = Math.max(60L,
+                properties.getDownloadConnectTimeout().plus(properties.getDownloadReadTimeout()).toSeconds());
+        try {
+            Path parent = normalizedTarget.getParent();
+            if (parent != null) Files.createDirectories(parent);
+            Files.deleteIfExists(temporary);
+            Files.deleteIfExists(logFile);
+            List<String> command = List.of(
+                    "curl.exe", "--location", "--fail", "--silent", "--show-error",
+                    "--ipv4", "--http1.1", "--connect-timeout", Long.toString(
+                            Math.max(1L, properties.getDownloadConnectTimeout().toSeconds())),
+                    "--max-time", Long.toString(timeoutSeconds),
+                    "--user-agent", "Mozilla/5.0 FashionImageAgent/1.0",
+                    "--output", temporary.toString(), uri.toASCIIString());
+            List<String> effectiveCommand = properties.isDownloadProxyConfigured()
+                    ? withCurlProxy(command)
+                    : command;
+            LOGGER.info("生成文件 curl 下载开始 url={} target={}", uri, normalizedTarget);
+            Process process = new ProcessBuilder(effectiveCommand)
+                    .redirectErrorStream(true)
+                    .redirectOutput(logFile.toFile())
+                    .start();
+            if (!process.waitFor(timeoutSeconds + 15L, java.util.concurrent.TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                throw new RunningHubException("生成文件 curl 下载超时：" + uri);
+            }
+            String output = Files.exists(logFile)
+                    ? diagnostic(Files.readString(logFile, StandardCharsets.UTF_8))
+                    : "";
+            if (process.exitValue() != 0) {
+                throw new RunningHubException("生成文件 curl 下载失败，exitCode="
+                        + process.exitValue() + (output.isBlank() ? "" : "，output=" + output));
+            }
+            long size = Files.size(temporary);
+            if (size == 0 || size > maxDownloadBytes) {
+                throw new RunningHubException("生成文件 curl 下载大小异常：" + size + " bytes");
+            }
+            Files.move(temporary, normalizedTarget, StandardCopyOption.REPLACE_EXISTING);
+            Files.deleteIfExists(logFile);
+            LOGGER.info("生成文件 curl 下载成功 url={} target={} size={} bytes", uri, normalizedTarget, size);
+            return normalizedTarget;
+        } catch (IOException exception) {
+            deletePartialFile(temporary);
+            throw new RunningHubException("生成文件 curl 下载失败：" + uri, exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            deletePartialFile(temporary);
+            throw new RunningHubException("生成文件 curl 下载被中断：" + uri, exception);
+        } catch (RuntimeException exception) {
+            deletePartialFile(temporary);
+            throw exception;
+        }
+    }
+
+    private static String diagnostic(String value) {
+        if (value == null) return "";
+        String normalized = value.replace('\r', ' ').replace('\n', ' ').trim();
+        if (normalized.length() <= 800) return normalized;
+        return normalized.substring(0, 800) + "…";
+    }
+
+    private List<String> withCurlProxy(List<String> command) {
+        java.util.ArrayList<String> result = new java.util.ArrayList<>(command.size() + 2);
+        result.add("curl.exe");
+        result.add("--proxy");
+        result.add(properties.getDownloadProxyHost().trim() + ":" + properties.getDownloadProxyPort());
+        result.addAll(command.subList(1, command.size()));
+        return result;
     }
 
     private Path downloadToFile(
@@ -616,6 +739,10 @@ public class RunningHubClient {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(properties.getDownloadConnectTimeout());
         requestFactory.setReadTimeout(properties.getDownloadReadTimeout());
+        // Generated COS assets are public result files and must be fetched
+        // directly. Do not let a stale 7890/7897 setting affect this path.
+        requestFactory.setProxy(Proxy.NO_PROXY);
+        LOGGER.info("RunningHub 结果下载网络路由 proxyEnabled=false proxy=direct");
         return requestFactory;
     }
 

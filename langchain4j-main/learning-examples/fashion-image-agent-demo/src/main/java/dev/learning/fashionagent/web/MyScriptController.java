@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -29,6 +30,11 @@ public class MyScriptController {
     @GetMapping("/episodes/{id}") EpisodeView episode(@PathVariable UUID id) { return service.episode(id); }
     @PostMapping("/{id}/episodes/first") ResponseEntity<EpisodeView> firstEpisode(@PathVariable UUID id) { return ResponseEntity.accepted().body(service.startFirstEpisode(id)); }
     @PostMapping("/{id}/episodes") ResponseEntity<EpisodeView> continueEpisode(@PathVariable UUID id) { return ResponseEntity.accepted().body(service.continueEpisode(id)); }
+    @DeleteMapping("/episodes/{id}") ResponseEntity<Void> deleteEpisode(@PathVariable UUID id) { service.deleteEpisode(id); return ResponseEntity.noContent().build(); }
+    @PostMapping("/{id}/episodes/batch") ResponseEntity<MyScriptService.BatchView> batchEpisodes(@PathVariable UUID id, @RequestBody BatchRequest request) {
+        return ResponseEntity.accepted().body(service.startEpisodeBatch(id, request == null || request.count() == null ? 1 : request.count()));
+    }
+    @GetMapping("/episode-batches/{id}") MyScriptService.BatchView episodeBatch(@PathVariable UUID id) { return service.episodeBatch(id); }
     @PostMapping("/episodes/{id}/rewrite") ResponseEntity<EpisodeView> rewriteEpisode(@PathVariable UUID id, @RequestBody RewriteRequest request) {
         return ResponseEntity.accepted().body(service.rewriteEpisode(id, request == null ? null : request.idea(), request == null ? null : request.promptId()));
     }
@@ -40,9 +46,9 @@ public class MyScriptController {
     @PostMapping("/{id}/characters") ResponseEntity<Void> saveCharacters(@PathVariable UUID id, @RequestBody List<CharacterRequest> requests) { service.saveCharacters(id, requests); return ResponseEntity.ok().build(); }
     @PostMapping("/{id}/characters/generate") CharacterView generateCharacter(@PathVariable UUID id, @RequestBody CharacterGenerateRequest request) { return service.generateCharacter(id, request == null ? null : request.characterName(), request == null ? null : request.prompt()); }
     @PostMapping("/{id}/characters/generate-all") List<CharacterView> generateAllCharacters(@PathVariable UUID id) { return service.generateAllCharacters(id); }
-    @PostMapping("/episodes/{id}/assets/character") Map<String, String> generateEpisodeCharacter(@PathVariable UUID id, @RequestBody CharacterGenerateRequest request) { return Map.of("image", service.generateEpisodeCharacter(id, request == null ? null : request.characterName(), request == null ? null : request.prompt())); }
+    @PostMapping("/episodes/{id}/assets/character") Map<String, String> generateEpisodeCharacter(@PathVariable UUID id, @RequestBody CharacterGenerateRequest request) { return Map.of("image", service.generateEpisodeCharacter(id, request == null ? null : request.characterName(), request == null ? null : request.prompt(), request == null ? null : request.imageSources())); }
     @PostMapping("/episodes/{id}/assets/supporting-character") EpisodeAssetView generateSupportingCharacter(@PathVariable UUID id, @RequestBody CharacterGenerateRequest request) { return service.generateSupportingCharacter(id, request == null ? null : request.characterName(), request == null ? null : request.prompt()); }
-    @PostMapping("/episodes/{id}/assets/environment") Map<String, String> generateEpisodeEnvironment(@PathVariable UUID id, @RequestBody Map<String, String> request) { return Map.of("image", service.generateEpisodeEnvironment(id, request == null ? null : request.get("prompt"))); }
+    @PostMapping("/episodes/{id}/assets/environment") Map<String, String> generateEpisodeEnvironment(@PathVariable UUID id, @RequestBody EnvironmentGenerateRequest request) { return Map.of("image", service.generateEpisodeEnvironment(id, request == null ? null : request.prompt(), request == null ? null : request.imageSources())); }
     @PostMapping("/episodes/{id}/replication-segments") MyScriptService.ReplicationView prepareReplication(@PathVariable UUID id) { return service.prepareReplication(id); }
     @PostMapping("/episodes/{id}/replication-segments/replan") MyScriptService.ReplicationView replanReplication(@PathVariable UUID id) { return service.replanReplication(id); }
     @GetMapping("/episodes/{id}/replication-segments") List<SegmentView> segments(@PathVariable UUID id) { return service.segments(id); }
@@ -53,5 +59,7 @@ public class MyScriptController {
     public record ReplicateRequest(List<String> images, String resolution) {}
     public record SegmentUpdateRequest(String content, Integer durationSeconds) {}
     public record RewriteRequest(String idea, UUID promptId) {}
-    public record CharacterGenerateRequest(String characterName, String prompt) {}
+    public record CharacterGenerateRequest(String characterName, String prompt, List<String> imageSources) {}
+    public record EnvironmentGenerateRequest(String prompt, List<String> imageSources) {}
+    public record BatchRequest(Integer count) {}
 }

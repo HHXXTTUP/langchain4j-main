@@ -15,6 +15,7 @@ public final class MenuCatalog {
         menus.put("workbench", "工作台");
         menus.put("tasks", "任务列表");
         menus.put("video-canvas", "视频工作台");
+        menus.put("video-browser", "视频生成中心");
         menus.put("dialogue-extraction", "提取台词");
         menus.put("video-bgm", "视频合成");
         menus.put("direct-outfit", "人物换装");
