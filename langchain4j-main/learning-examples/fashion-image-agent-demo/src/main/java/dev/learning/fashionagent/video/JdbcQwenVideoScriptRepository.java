@@ -25,23 +25,23 @@ class JdbcQwenVideoScriptRepository implements QwenVideoScriptRepository {
         safelyWrite(() -> jdbcTemplate.update("""
                 INSERT INTO qwen_video_script_job
                     (id, source_address, source_file_name, video_path, status, message, script_text,
-                     error_message, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     error_message, model_name, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
                     source_file_name=VALUES(source_file_name), video_path=VALUES(video_path),
                     status=VALUES(status), message=VALUES(message), script_text=VALUES(script_text),
-                    error_message=VALUES(error_message), updated_at=VALUES(updated_at)
+                    error_message=VALUES(error_message), model_name=VALUES(model_name), updated_at=VALUES(updated_at)
                 """,
                 snapshot.id().toString(), snapshot.address(), snapshot.sourceFileName(), path(snapshot.videoPath()),
                 snapshot.status(), snapshot.message(), snapshot.script(), snapshot.error(),
-                Timestamp.from(snapshot.createdAt()), Timestamp.from(snapshot.updatedAt())));
+                snapshot.effectiveModel(), Timestamp.from(snapshot.createdAt()), Timestamp.from(snapshot.updatedAt())));
     }
 
     @Override
     public List<QwenVideoScriptSnapshot> list() {
         return safelyRead(() -> jdbcTemplate.query("""
                 SELECT id, source_address, source_file_name, video_path, status, message, script_text,
-                       error_message, created_at, updated_at
+                       error_message, model_name, created_at, updated_at
                 FROM qwen_video_script_job ORDER BY created_at DESC LIMIT 200
                 """, (rs, row) -> map(rs)), List.of());
     }
@@ -50,7 +50,7 @@ class JdbcQwenVideoScriptRepository implements QwenVideoScriptRepository {
     public Optional<QwenVideoScriptSnapshot> find(UUID id) {
         return safelyRead(() -> jdbcTemplate.query("""
                 SELECT id, source_address, source_file_name, video_path, status, message, script_text,
-                       error_message, created_at, updated_at
+                       error_message, model_name, created_at, updated_at
                 FROM qwen_video_script_job WHERE id = ?
                 """, (rs, row) -> map(rs), id.toString()).stream().findFirst(), Optional.empty());
     }
@@ -60,7 +60,7 @@ class JdbcQwenVideoScriptRepository implements QwenVideoScriptRepository {
                 rs.getString("source_address"), rs.getString("source_file_name"), toPath(rs.getString("video_path")),
                 rs.getString("status"), rs.getString("message"), rs.getString("script_text"),
                 rs.getString("error_message"), rs.getTimestamp("created_at").toInstant(),
-                rs.getTimestamp("updated_at").toInstant());
+                rs.getTimestamp("updated_at").toInstant(), rs.getString("model_name"));
     }
 
     private void safelyWrite(Runnable action) {

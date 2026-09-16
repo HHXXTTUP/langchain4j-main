@@ -252,46 +252,70 @@ public class VideoMediaProcessor {
         return output;
     }
 
-    /** Holds the final frame for up to 3.5 seconds with a subtle camera shake and mixes an ending cue. */
+    /** Preserves the original ending behavior for callers that do not provide custom timing. */
     public Path addBackgroundMusicWithEnding(Path video, Path backgroundMusic, Path endingMusic, Path output, Path logFile) {
+        return addBackgroundMusicWithEnding(video, backgroundMusic, endingMusic, output, logFile, -1, -1, "SHAKE");
+    }
+
+    public Path addBackgroundMusicWithEnding(
+            Path video,
+            Path backgroundMusic,
+            Path endingMusic,
+            Path output,
+            Path logFile,
+            double requestedCutSeconds,
+            double requestedHoldSeconds,
+            String requestedEffect) {
         requireFile(video, "原视频");
         requireFile(backgroundMusic, "背景音乐");
         requireFile(endingMusic, "结尾背景音乐");
         requireAvailable();
         VideoProbe probe = probe(video);
         double duration = probe.durationSeconds();
-        double hold = Math.min(3.5, duration);
-        double start = Math.max(0, duration - hold);
-        String total = decimal(duration);
-        String startText = decimal(start);
+        if (duration <= 0) throw new IllegalArgumentException("无法读取原视频时长");
+        double hold = requestedHoldSeconds > 0 ? requestedHoldSeconds : Math.min(3.5, duration);
+        if (!Double.isFinite(hold) || hold < 0.1 || hold > 30) {
+            throw new IllegalArgumentException("定格秒数必须在 0.1 到 30 秒之间");
+        }
+        double cut = requestedCutSeconds > 0 ? requestedCutSeconds : Math.max(0, duration - hold);
+        if (!Double.isFinite(cut) || cut < 0 || cut > duration) {
+            throw new IllegalArgumentException("截取秒数必须大于 0 且不能超过原视频时长 " + decimal(duration) + " 秒");
+        }
+        if (requestedCutSeconds > 0 && cut < 0.04) {
+            throw new IllegalArgumentException("截取秒数不能小于 0.04 秒");
+        }
+        String effect = normalizeEndingEffect(requestedEffect);
+        double totalDuration = cut + hold;
+        String total = decimal(totalDuration);
+        String cutText = decimal(cut);
         String outputSize = probe.width() + ":" + probe.height();
+        String holdEffect = endingEffectFilter(effect, probe.width(), probe.height(), hold);
+        Path freezeFrame = logFile.toAbsolutePath().getParent().resolve("freeze-frame.png");
+        extractFreezeFrame(video, freezeFrame, Math.max(0, cut - 0.04), logFile.resolveSibling("freeze-frame.log"));
         String videoFilter;
-        if (start > 0.04) {
-            videoFilter = "[0:v]split=2[preSource][stillSource];"
-                    + "[preSource]trim=start=0:end=" + startText + ",setpts=PTS-STARTPTS[pre];"
-                    + "[stillSource]trim=start=" + startText + ":end=" + decimal(start + 0.04)
-                    + ",setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=" + decimal(hold - 0.04)
-                    + ",crop=iw-24:ih-24:12+8*sin(n*1.7):12+8*cos(n*1.9),scale=" + outputSize + ",setsar=1[holdFrame];"
+        if (cut >= 0.04) {
+            videoFilter = "[0:v]trim=start=0:end=" + cutText + ",setpts=PTS-STARTPTS,scale=" + outputSize
+                    + ",setsar=1,fps=25,format=yuv420p[pre];"
+                    + "[1:v]trim=duration=" + decimal(hold) + ",setpts=PTS-STARTPTS," + holdEffect + "[holdFrame];"
                     + "[pre][holdFrame]concat=n=2:v=1:a=0[v]";
         } else {
-            videoFilter = "[0:v]trim=start=0:end=0.04,setpts=PTS-STARTPTS"
-                    + ",tpad=stop_mode=clone:stop_duration=" + decimal(Math.max(0, duration - 0.04))
-                    + ",crop=iw-24:ih-24:12+8*sin(n*1.7):12+8*cos(n*1.9),scale=" + outputSize + ",setsar=1[v]";
+            videoFilter = "[1:v]trim=duration=" + decimal(hold) + ",setpts=PTS-STARTPTS," + holdEffect + "[v]";
         }
-        String delay = Long.toString(Math.round(start * 1000));
+        String delay = Long.toString(Math.round(cut * 1000));
         String audioFilter;
         if (probe.hasAudio()) {
-            audioFilter = "[0:a]aresample=48000,volume=1[orig];"
-                    + "[1:a]aresample=48000,volume=0.35,atrim=duration=" + total + "[main];"
-                    + "[2:a]aresample=48000,adelay=" + delay + "|" + delay + ",volume=1.0,atrim=duration=" + total + "[ending];"
-                    + "[orig][main][ending]amix=inputs=3:duration=first:dropout_transition=0[a]";
+            audioFilter = "[0:a]atrim=start=0:end=" + cutText + ",asetpts=PTS-STARTPTS,aresample=48000,volume=1[orig];"
+                    + "[2:a]aresample=48000,volume=0.35,atrim=duration=" + cutText + ",asetpts=PTS-STARTPTS[main];"
+                    + "[3:a]aresample=48000,adelay=" + delay + "|" + delay + ",volume=1.0,atrim=duration=" + total + "[ending];"
+                    + "[orig][main][ending]amix=inputs=3:duration=longest:dropout_transition=0[a]";
         } else {
-            audioFilter = "[1:a]aresample=48000,volume=0.35,atrim=duration=" + total + "[main];"
-                    + "[2:a]aresample=48000,adelay=" + delay + "|" + delay + ",volume=1.0,atrim=duration=" + total + "[ending];"
-                    + "[main][ending]amix=inputs=2:duration=first:dropout_transition=0[a]";
+            audioFilter = "[2:a]aresample=48000,volume=0.35,atrim=duration=" + cutText + ",asetpts=PTS-STARTPTS[main];"
+                    + "[3:a]aresample=48000,adelay=" + delay + "|" + delay + ",volume=1.0,atrim=duration=" + total + "[ending];"
+                    + "[main][ending]amix=inputs=2:duration=longest:dropout_transition=0[a]";
         }
         List<String> command = new ArrayList<>(List.of(ffmpegCommand(), "-y",
                 "-i", video.toAbsolutePath().toString(),
+                "-loop", "1", "-framerate", "25", "-i", freezeFrame.toAbsolutePath().toString(),
                 "-stream_loop", "-1", "-i", backgroundMusic.toAbsolutePath().toString(),
                 "-stream_loop", "-1", "-i", endingMusic.toAbsolutePath().toString(),
                 "-filter_complex", videoFilter + ";" + audioFilter,
@@ -301,6 +325,42 @@ public class VideoMediaProcessor {
                 "-movflags", "+faststart", output.toAbsolutePath().toString()));
         run(command, logFile, properties.getFfmpegTimeout());
         return output;
+    }
+
+    private void extractFreezeFrame(Path video, Path frame, double seekSeconds, Path logFile) {
+        List<String> command = List.of(
+                ffmpegCommand(), "-y",
+                "-ss", decimal(Math.max(0, seekSeconds)),
+                "-i", video.toAbsolutePath().toString(),
+                "-frames:v", "1",
+                "-vf", "scale=" + probe(video).width() + ":" + probe(video).height() + ",setsar=1",
+                frame.toAbsolutePath().toString());
+        run(command, logFile, properties.getFfmpegTimeout());
+        requireFile(frame, "定格帧");
+    }
+
+    private static String normalizeEndingEffect(String effect) {
+        if (effect == null || effect.isBlank()) return "SHAKE";
+        return switch (effect.trim().toUpperCase()) {
+            case "NONE", "SHAKE", "ZOOM", "FLASH" -> effect.trim().toUpperCase();
+            default -> throw new IllegalArgumentException("不支持的定格特效：" + effect);
+        };
+    }
+
+    private static String endingEffectFilter(String effect, int width, int height, double holdSeconds) {
+        String outputSize = width + ":" + height;
+        return switch (effect) {
+            case "NONE" -> "scale=" + outputSize + ",setsar=1,fps=25,format=yuv420p";
+            case "ZOOM" -> "scale=iw*1.14:ih*1.14,"
+                    + "zoompan=z='min(zoom+0.0025,1.14)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+                    + ":d=1:s=" + width + "x" + height + ":fps=25,setsar=1,format=yuv420p";
+            case "FLASH" -> "scale=" + outputSize + ",setsar=1,fps=25,format=yuv420p,"
+                    + "drawbox=x=0:y=0:w=iw:h=ih:color=white@0.92:t=fill:enable='between(t,0,0.22)',"
+                    + "drawbox=x=0:y=0:w=iw:h=ih:color=white@0.68:t=fill:enable='between(t,0.48,0.64)'";
+            default -> "scale=iw*1.14:ih*1.14,"
+                    + "crop=iw/1.14:ih/1.14:(iw-ow)/2+((iw-ow)/2-2)*sin(n*3.8):(ih-oh)/2+((ih-oh)/2-2)*cos(n*4.3),"
+                    + "scale=" + outputSize + ",setsar=1,fps=25,format=yuv420p";
+        };
     }
 
     public Path mergeWithZoomTransition(

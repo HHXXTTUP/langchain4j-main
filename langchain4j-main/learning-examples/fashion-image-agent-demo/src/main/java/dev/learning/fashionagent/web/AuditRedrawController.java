@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
+import java.util.List;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -31,6 +32,17 @@ public class AuditRedrawController {
 
     @GetMapping("/{id}")
     AuditRedrawView get(@PathVariable UUID id) { return service.get(id); }
+
+    @GetMapping
+    List<AuditRedrawView> list() { return service.list(); }
+
+    @GetMapping("/{id}/input")
+    ResponseEntity<FileSystemResource> input(@PathVariable UUID id) throws IOException {
+        Path path = service.input(id);
+        String type = Files.probeContentType(path);
+        MediaType mediaType = type == null ? MediaType.IMAGE_PNG : MediaType.parseMediaType(type);
+        return ResponseEntity.ok().contentType(mediaType).body(new FileSystemResource(path));
+    }
 
     @GetMapping("/{id}/output")
     ResponseEntity<FileSystemResource> output(@PathVariable UUID id) throws IOException {

@@ -33,7 +33,18 @@ public class BgmVideoCompositionController {
         return ResponseEntity.ok().contentType(type == null ? MediaType.parseMediaType("audio/mpeg") : MediaType.parseMediaType(type)).body(new FileSystemResource(path));
     }
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    ResponseEntity<BgmJobView> compose(@RequestPart("video") MultipartFile video, @RequestParam("bgm") String bgm, @RequestParam(value = "name", required = false) String name, @RequestParam(value = "ending", defaultValue = "false") boolean ending, @RequestParam(value = "endingBgm", required = false) String endingBgm) { return ResponseEntity.accepted().body(service.compose(video, bgm, name, ending, endingBgm)); }
+    ResponseEntity<BgmJobView> compose(
+            @RequestPart("video") MultipartFile video,
+            @RequestParam("bgm") String bgm,
+            @RequestParam(value = "name", required = false) String name,
+            @RequestParam(value = "ending", defaultValue = "false") boolean ending,
+            @RequestParam(value = "endingBgm", required = false) String endingBgm,
+            @RequestParam(value = "cutSeconds", required = false) Double cutSeconds,
+            @RequestParam(value = "holdSeconds", required = false) Double holdSeconds,
+            @RequestParam(value = "effect", required = false) String effect) {
+        return ResponseEntity.accepted().body(service.compose(
+                video, bgm, name, ending, endingBgm, cutSeconds, holdSeconds, effect));
+    }
     @GetMapping("/{id}") BgmJobView get(@PathVariable UUID id) { return service.get(id); }
     @GetMapping("/{id}/output") ResponseEntity<FileSystemResource> output(@PathVariable UUID id) throws IOException { Path path=service.output(id); String type=Files.probeContentType(path); return ResponseEntity.ok().contentType(type==null?MediaType.parseMediaType("video/mp4"):MediaType.parseMediaType(type)).body(new FileSystemResource(path)); }
 }

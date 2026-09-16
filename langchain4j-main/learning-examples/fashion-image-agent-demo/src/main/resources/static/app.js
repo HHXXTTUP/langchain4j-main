@@ -114,6 +114,9 @@ const videoBgmName = document.querySelector("#video-bgm-name");
 const videoBgmEnding = document.querySelector("#video-bgm-ending");
 const videoBgmEndingWrap = document.querySelector("#video-bgm-ending-wrap");
 const videoBgmEndingSelect = document.querySelector("#video-bgm-ending-select");
+const videoBgmCutSeconds = document.querySelector("#video-bgm-cut-seconds");
+const videoBgmHoldSeconds = document.querySelector("#video-bgm-hold-seconds");
+const videoBgmEffect = document.querySelector("#video-bgm-effect");
 const videoBgmAudio = document.querySelector("#video-bgm-audio");
 const videoBgmEndingAudio = document.querySelector("#video-bgm-ending-audio");
 const videoBgmSubmit = document.querySelector("#video-bgm-submit");
@@ -134,8 +137,15 @@ const auditRedrawPreview = document.querySelector("#audit-redraw-preview");
 const auditRedrawSubmit = document.querySelector("#audit-redraw-submit");
 const auditRedrawMessage = document.querySelector("#audit-redraw-message");
 const auditRedrawResult = document.querySelector("#audit-redraw-result");
+const auditRedrawTabs = document.querySelectorAll("[data-audit-redraw-tab]");
+const auditRedrawPanels = document.querySelectorAll("[data-audit-redraw-panel]");
+const refreshAuditRedrawHistory = document.querySelector("#refresh-audit-redraw-history");
+const auditRedrawHistoryMessage = document.querySelector("#audit-redraw-history-message");
+const auditRedrawHistory = document.querySelector("#audit-redraw-history");
 const gptImagesForm = document.querySelector("#gpt-images-form");
 const gptImagesPrompt = document.querySelector("#gpt-images-prompt");
+const gptImagesReference = document.querySelector("#gpt-images-reference");
+const gptImagesReferencePreview = document.querySelector("#gpt-images-reference-preview");
 const gptImagesSubmit = document.querySelector("#gpt-images-submit");
 const gptImagesMessage = document.querySelector("#gpt-images-message");
 const gptImagesResult = document.querySelector("#gpt-images-result");
@@ -144,6 +154,7 @@ const videoScriptAddress = document.querySelector("#video-script-address");
 const videoScriptAddressWrap = document.querySelector("#video-script-address-wrap");
 const videoScriptFile = document.querySelector("#video-script-file");
 const videoScriptFileWrap = document.querySelector("#video-script-file-wrap");
+const videoScriptModel = document.querySelector("#video-script-model");
 const videoScriptSourceOptions = document.querySelectorAll("input[name='video-script-source']");
 const videoScriptSubmit = document.querySelector("#video-script-submit");
 const videoScriptDownload = document.querySelector("#video-script-download");
@@ -342,7 +353,10 @@ if (directOutfitPerson) directOutfitPerson.addEventListener("change", () => prev
 if (directOutfitClothing) directOutfitClothing.addEventListener("change", () => previewDirectOutfitFile(directOutfitClothing, directOutfitClothingPreview));
 if (auditRedrawForm) auditRedrawForm.addEventListener("submit", submitAuditRedraw);
 if (auditRedrawImage) auditRedrawImage.addEventListener("change", () => previewDirectOutfitFile(auditRedrawImage, auditRedrawPreview));
+auditRedrawTabs.forEach(tab => tab.addEventListener("click", () => activateAuditRedrawTab(tab.dataset.auditRedrawTab)));
+if (refreshAuditRedrawHistory) refreshAuditRedrawHistory.addEventListener("click", loadAuditRedrawHistory);
 if (gptImagesForm) gptImagesForm.addEventListener("submit", submitGptImages);
+if (gptImagesReference) gptImagesReference.addEventListener("change", previewGptImageReferences);
 if (videoScriptForm) videoScriptForm.addEventListener("submit", submitVideoScript);
 if (videoScriptDownload) videoScriptDownload.addEventListener("click", () => submitVideoScriptTask(false));
 videoScriptSourceOptions.forEach((option) => option.addEventListener("change", syncVideoScriptSource));
@@ -395,6 +409,7 @@ selectAllVideoSources.addEventListener("change", () => {
     }
     renderHistoryTable(currentImageJobs);
 });
+if (videoBgmVideo) videoBgmVideo.addEventListener("change", readVideoBgmDuration);
 selectAllVideoRetries.addEventListener("change", () => {
     const retryableIds = retryableVideoJobIds();
     if (selectAllVideoRetries.checked) {
@@ -3089,7 +3104,7 @@ function renderScriptReplication(segments, assets, episode, episodeMaterial = nu
     const environmentAction = document.createElement("div"); environmentAction.className = "replication-environment-actions";
     const environmentPromptLabel = document.createElement("label"); environmentPromptLabel.className = "replication-environment-prompt"; environmentPromptLabel.textContent = "环境提示词";
     const environmentPrompt = document.createElement("textarea"); environmentPrompt.rows = 3; environmentPrompt.placeholder = "描述场景时代、空间结构、光线、材质、镜头方向和首尾帧需要保持的连续元素"; environmentPrompt.value = episodeMaterial?.environment || ""; environmentPromptLabel.append(environmentPrompt);
-    const environmentInputLabel = document.createElement("label"); environmentInputLabel.className = "replication-environment-upload"; environmentInputLabel.textContent = "上传环境参考图（可多选）";
+    const environmentInputLabel = document.createElement("label"); environmentInputLabel.className = "replication-environment-upload"; environmentInputLabel.textContent = "环境参考图（可选，可多选；不上传则直接文生图）";
     const environmentInput = document.createElement("input"); environmentInput.type = "file"; environmentInput.accept = "image/*"; environmentInput.multiple = true; environmentInputLabel.append(environmentInput);
     const environmentUploadPreview = document.createElement("div"); environmentUploadPreview.className = "replication-image-preview";
     const environmentButton = document.createElement("button"); environmentButton.type = "button"; environmentButton.textContent = "生成本集环境图";
@@ -3098,7 +3113,7 @@ function renderScriptReplication(segments, assets, episode, episodeMaterial = nu
     const showEnvironment = image => { if (!image) return; const imageElement = document.createElement("img"); imageElement.className = "replication-environment-image"; imageElement.src = image; imageElement.alt = "本集环境图"; const link = document.createElement("a"); link.href = image; link.download = "本集环境图.png"; link.textContent = "查看 / 下载"; environmentAction.append(imageElement, link); };
     if (savedEnvironmentImage) showEnvironment(savedEnvironmentImage);
     environmentInput.addEventListener("change", async () => { environmentUploadPreview.replaceChildren(); if (environmentInput.files.length > 16) { window.alert("本集环境图最多支持 16 张参考图"); environmentInput.value = ""; return; } const images = await Promise.all([...environmentInput.files].map(readFileAsDataUrl)); images.forEach(url => { const img = document.createElement("img"); img.src = url; img.alt = "环境参考图"; environmentUploadPreview.append(img); }); });
-    environmentButton.addEventListener("click", async () => { environmentButton.disabled = true; environmentButton.textContent = "生成中…"; try { const imageSources = environmentInput.files.length ? await Promise.all([...environmentInput.files].map(readFileAsDataUrl)) : []; const response = await fetch(`/api/my-scripts/episodes/${episode.id}/assets/environment`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({prompt: environmentPrompt.value, imageSources})}); const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "生成环境图失败"); environmentAction.querySelectorAll("img, a").forEach(node => node.remove()); showEnvironment(payload.image); } catch (error) { window.alert(error.message || "生成环境图失败"); } finally { environmentButton.disabled = false; environmentButton.textContent = "生成本集环境图"; } });
+    environmentButton.addEventListener("click", async () => { environmentButton.disabled = true; environmentButton.textContent = environmentInput.files.length ? "参考图生成中…" : "文生图生成中…"; try { const request = {prompt: environmentPrompt.value}; if (environmentInput.files.length) request.imageSources = await Promise.all([...environmentInput.files].map(readFileAsDataUrl)); const response = await fetch(`/api/my-scripts/episodes/${episode.id}/assets/environment`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(request)}); const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "生成环境图失败"); environmentAction.querySelectorAll("img, a").forEach(node => node.remove()); showEnvironment(payload.image); } catch (error) { window.alert(error.message || "生成环境图失败"); } finally { environmentButton.disabled = false; environmentButton.textContent = "生成本集环境图"; } });
     environmentAction.append(environmentPromptLabel, environmentInputLabel, environmentUploadPreview, environmentButton); materialPanel.append(environmentAction); scriptReplicationContent.append(materialPanel);
 
     const assetPanel = document.createElement("section"); assetPanel.className = "replication-assets";
@@ -4375,12 +4390,24 @@ async function submitVideoBgm(event) {
     const ending = Boolean(videoBgmEnding?.checked);
     const endingBgm = videoBgmEndingSelect?.value || "";
     if (ending && !endingBgm) { videoBgmMessage.textContent = "请选择结尾 BGM"; return; }
+    const cutSeconds = Number(videoBgmCutSeconds?.value);
+    const holdSeconds = Number(videoBgmHoldSeconds?.value);
+    const effect = videoBgmEffect?.value || "SHAKE";
+    if (ending && (!Number.isFinite(cutSeconds) || cutSeconds < 0.04)) { videoBgmMessage.textContent = "请输入不小于 0.04 秒的截取秒数"; return; }
+    if (ending && (!Number.isFinite(holdSeconds) || holdSeconds < 0.1 || holdSeconds > 30)) { videoBgmMessage.textContent = "定格秒数必须在 0.1 到 30 秒之间"; return; }
+    const sourceDuration = Number(videoBgmVideo?.dataset?.duration);
+    if (ending && Number.isFinite(sourceDuration) && cutSeconds > sourceDuration) { videoBgmMessage.textContent = `截取秒数不能超过原视频时长 ${sourceDuration.toFixed(2)} 秒`; return; }
     videoBgmSubmit.disabled = true; videoBgmMessage.textContent = "正在提交视频合成任务…";
     try {
         const body = new FormData(); body.append("video", file); body.append("bgm", bgm);
         if (videoBgmName?.value?.trim()) body.append("name", videoBgmName.value.trim());
         body.append("ending", String(ending));
-        if (ending) body.append("endingBgm", endingBgm);
+        if (ending) {
+            body.append("endingBgm", endingBgm);
+            body.append("cutSeconds", String(cutSeconds));
+            body.append("holdSeconds", String(holdSeconds));
+            body.append("effect", effect);
+        }
         const response = await fetch("/api/video-bgm-compositions", {method: "POST", body});
         const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "视频合成提交失败");
         videoBgmTask = payload; renderVideoBgmTask(payload); pollVideoBgm(payload.id);
@@ -4447,6 +4474,28 @@ async function submitAuditRedraw(event) {
     } finally { if (auditRedrawSubmit) auditRedrawSubmit.disabled = false; }
 }
 
+function readVideoBgmDuration() {
+    const file = videoBgmVideo?.files?.[0];
+    if (!file || !videoBgmVideo) return;
+    delete videoBgmVideo.dataset.duration;
+    const url = URL.createObjectURL(file);
+    const probe = document.createElement("video");
+    probe.preload = "metadata";
+    probe.onloadedmetadata = () => {
+        const duration = Number(probe.duration);
+        if (Number.isFinite(duration) && duration > 0) {
+            videoBgmVideo.dataset.duration = String(duration);
+            if (videoBgmCutSeconds) {
+                videoBgmCutSeconds.max = String(duration);
+                videoBgmCutSeconds.placeholder = `原视频 ${duration.toFixed(2)} 秒以内`;
+            }
+        }
+        URL.revokeObjectURL(url);
+    };
+    probe.onerror = () => URL.revokeObjectURL(url);
+    probe.src = url;
+}
+
 async function loadMenuConfig() {
     if (!menuConfigList || !currentAccountSession?.administrator) return;
     menuConfigMessage.textContent = "正在读取菜单配置…";
@@ -4502,13 +4551,41 @@ async function submitGptImages(event) {
     event.preventDefault();
     const prompt = gptImagesPrompt?.value?.trim();
     if (!prompt) { if (gptImagesMessage) gptImagesMessage.textContent = "请输入图片提示词"; return; }
-    gptImagesSubmit.disabled = true; gptImagesMessage.textContent = "正在提交 GPT 文生图任务…";
+    const references = [...(gptImagesReference?.files || [])];
+    if (references.length > 16) { gptImagesMessage.textContent = "最多上传 16 张参考图片"; return; }
+    gptImagesSubmit.disabled = true; gptImagesMessage.textContent = references.length ? "正在提交 GPT 图生图任务…" : "正在提交 GPT 文生图任务…";
     try {
-        const response = await fetch("/api/gpt-images", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({prompt})});
+        let request;
+        if (references.length) {
+            const body = new FormData(); body.append("prompt", prompt);
+            references.forEach(file => body.append("referenceImages", file, file.name));
+            request = {method: "POST", body};
+        } else {
+            request = {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({prompt})};
+        }
+        const response = await fetch("/api/gpt-images", request);
         const payload = await readJson(response); if (!response.ok) throw new Error(payload.message || "文生图提交失败");
         renderGptImages(payload); pollGptImages(payload.id);
     } catch (error) { gptImagesMessage.textContent = error.message || "文生图失败"; }
     finally { gptImagesSubmit.disabled = false; }
+}
+
+async function previewGptImageReferences() {
+    if (!gptImagesReferencePreview) return;
+    const files = [...(gptImagesReference?.files || [])];
+    gptImagesReferencePreview.replaceChildren();
+    gptImagesReferencePreview.hidden = !files.length;
+    if (files.length > 16) {
+        gptImagesMessage.textContent = "最多上传 16 张参考图片";
+        return;
+    }
+    const urls = await Promise.all(files.map(readFileAsDataUrl));
+    urls.forEach((url, index) => {
+        const item = document.createElement("figure"); item.className = "gpt-images-reference-item";
+        const image = document.createElement("img"); image.src = url; image.alt = `参考图 ${index + 1}`;
+        const caption = document.createElement("figcaption"); caption.textContent = `参考图 ${index + 1}`;
+        item.append(image, caption); gptImagesReferencePreview.append(item);
+    });
 }
 
 async function loadVideoBrowserProfiles() {
@@ -4662,7 +4739,7 @@ async function pollGptImages(id) {
 }
 function renderGptImages(task) {
     if (!gptImagesResult) return; gptImagesResult.hidden = false; gptImagesResult.replaceChildren();
-    const title = document.createElement("h3"); title.textContent = "GPT Image 2 文生图";
+    const title = document.createElement("h3"); title.textContent = task.referenceImageCount ? `GPT Image 2 图生图 · ${task.referenceImageCount} 张参考图` : "GPT Image 2 文生图";
     const status = document.createElement("p"); status.textContent = task.message || task.status; gptImagesResult.append(title, status);
     if (task.error) { const error = document.createElement("p"); error.className = "form-error"; error.textContent = task.error; gptImagesResult.append(error); }
     if (task.outputUrl) { const image = document.createElement("img"); image.src = task.outputUrl; image.alt = "GPT 文生图结果"; image.className = "direct-outfit-output"; const link = document.createElement("a"); link.href = task.outputUrl; link.target = "_blank"; link.download = "gpt-image.png"; link.textContent = "查看 / 下载图片"; gptImagesResult.append(image, link); }
@@ -4699,6 +4776,62 @@ function renderAuditRedraw(task) {
     }
 }
 
+function activateAuditRedrawTab(tabName) {
+    auditRedrawTabs.forEach(tab => {
+        const active = tab.dataset.auditRedrawTab === tabName;
+        tab.classList.toggle("is-active", active);
+        tab.setAttribute("aria-selected", String(active));
+    });
+    auditRedrawPanels.forEach(panel => { panel.hidden = panel.dataset.auditRedrawPanel !== tabName; });
+    if (tabName === "history") loadAuditRedrawHistory();
+}
+
+async function loadAuditRedrawHistory() {
+    if (!auditRedrawHistory) return;
+    auditRedrawHistoryMessage.textContent = "正在读取重绘记录…";
+    try {
+        const response = await fetch("/api/audit-redraw", {cache: "no-store"});
+        const payload = await readJson(response);
+        if (!response.ok) throw new Error(payload.message || "读取重绘记录失败");
+        renderAuditRedrawHistory(Array.isArray(payload) ? payload : []);
+        auditRedrawHistoryMessage.textContent = payload.length ? `共 ${payload.length} 条重绘记录` : "暂无重绘记录";
+    } catch (error) {
+        auditRedrawHistory.replaceChildren();
+        auditRedrawHistoryMessage.textContent = error.message || "读取重绘记录失败";
+    }
+}
+
+function renderAuditRedrawHistory(records) {
+    auditRedrawHistory.replaceChildren();
+    if (!records.length) {
+        const empty = document.createElement("p"); empty.className = "knowledge-empty"; empty.textContent = "完成过审重绘后，原图和结果会显示在这里。"; auditRedrawHistory.append(empty); return;
+    }
+    records.forEach(record => {
+        const card = document.createElement("article"); card.className = "audit-redraw-history-card";
+        const heading = document.createElement("div"); heading.className = "audit-redraw-history-heading";
+        const title = document.createElement("strong"); title.textContent = record.inputFileName || "过审重绘任务";
+        const time = document.createElement("time"); time.textContent = formatTime(record.createdAt); heading.append(title, time); card.append(heading);
+        const status = document.createElement("p"); status.className = `audit-redraw-history-status ${String(record.status || "").toLowerCase()}`; status.textContent = record.message || record.status || "未知状态"; card.append(status);
+        const images = document.createElement("div"); images.className = "audit-redraw-history-images";
+        appendAuditHistoryImage(images, record.inputUrl, "重绘前原图", record.createdAt, `${record.inputFileName || "原图"}（重绘前）`);
+        appendAuditHistoryImage(images, record.outputUrl, "过审重绘图", record.createdAt, `${record.inputFileName || "图片"}（重绘后）`);
+        card.append(images);
+        if (record.error) { const error = document.createElement("p"); error.className = "form-error"; error.textContent = record.error; card.append(error); }
+        auditRedrawHistory.append(card);
+    });
+}
+
+function appendAuditHistoryImage(container, url, label, updatedAt, alt) {
+    const figure = document.createElement("figure"); figure.className = "audit-redraw-history-figure";
+    if (!url) { const placeholder = document.createElement("div"); placeholder.className = "audit-redraw-history-placeholder"; placeholder.textContent = "等待生成"; figure.append(placeholder); }
+    else {
+        const button = document.createElement("button"); button.type = "button"; button.className = "audit-redraw-history-image-button"; button.title = "点击放大查看";
+        const image = document.createElement("img"); image.src = withVersion(url, updatedAt); image.alt = alt; button.append(image); button.addEventListener("click", () => openImagePreview(url, alt, updatedAt)); figure.append(button);
+        const link = document.createElement("a"); link.href = url; link.target = "_blank"; link.download = label === "重绘前原图" ? "audit-redraw-input" : "audit-redraw-output.png"; link.textContent = `下载${label}`; figure.append(link);
+    }
+    const caption = document.createElement("figcaption"); caption.textContent = label; figure.append(caption); container.append(figure);
+}
+
 async function submitVideoScript(event) {
     event.preventDefault();
     await submitVideoScriptTask(true);
@@ -4717,8 +4850,8 @@ async function submitVideoScriptTask(parse) {
         : (parse ? "正在拉取并解析视频…" : "正在拉取视频…");
     try {
         const request = source === "upload"
-            ? (() => { const body = new FormData(); body.append("video", file); body.append("parse", String(parse)); return {method: "POST", body}; })()
-            : {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({address, parse})};
+            ? (() => { const body = new FormData(); body.append("video", file); body.append("parse", String(parse)); body.append("model", videoScriptModel?.value || "QWEN"); return {method: "POST", body}; })()
+            : {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({address, parse, model: videoScriptModel?.value || "QWEN"})};
         const response = await fetch("/api/qwen-video-scripts", request);
         const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.message || "视频任务提交失败");
@@ -4780,7 +4913,9 @@ function renderVideoScriptList(items) {
     items.forEach((item) => {
         const row = document.createElement("tr");
         const titleCell = document.createElement("td"); titleCell.className = "video-script-ellipsis"; titleCell.title = item.sourceFileName || "";
-        const title = document.createElement("strong"); title.textContent = item.sourceFileName || "未命名视频"; titleCell.append(title); row.append(titleCell);
+        const title = document.createElement("strong"); title.textContent = item.sourceFileName || "未命名视频";
+        const model = document.createElement("small"); model.className = "video-script-model-label"; model.textContent = item.model === "GEMINI" ? "Gemini 3.7" : "通义千问";
+        titleCell.append(title, model); row.append(titleCell);
         const address = document.createElement("td"); address.className = "video-script-ellipsis"; address.textContent = item.address || ""; address.title = item.address || ""; row.append(address);
         const statusCell = document.createElement("td"); const status = document.createElement("span"); status.className = `standalone-video-status ${String(item.status || "").toLowerCase()}`; status.textContent = videoScriptStatusLabel(item.status); statusCell.append(status); row.append(statusCell);
         const info = document.createElement("td"); info.className = "video-script-ellipsis"; info.textContent = item.error || item.message || ""; info.title = info.textContent; row.append(info);
@@ -4814,7 +4949,7 @@ function renderVideoScript(task) {
     videoScriptResult.hidden = false; videoScriptResult.replaceChildren();
     const heading = document.createElement("div"); heading.className = "production-script-heading";
     const title = document.createElement("h3"); title.textContent = task.sourceFileName || "视频脚本任务";
-    const meta = document.createElement("p"); meta.textContent = task.message || task.status;
+    const meta = document.createElement("p"); meta.textContent = `${task.model === "GEMINI" ? "Gemini 3.7" : "通义千问"} · ${task.message || task.status}`;
     heading.append(title, meta); videoScriptResult.append(heading);
     if (task.error) { const error = document.createElement("p"); error.className = "form-error"; error.textContent = task.error; videoScriptResult.append(error); }
     if (task.script) {
@@ -4842,6 +4977,12 @@ function renderVideoBgmTask(task) {
     videoBgmResult.hidden = false; videoBgmResult.replaceChildren();
     const title = document.createElement("h3"); title.textContent = `${task.sourceFileName || "原视频"} + ${task.bgmName || "BGM"}${task.endingBgmName ? ` + 结尾：${task.endingBgmName}` : ""}`;
     const status = document.createElement("p"); status.textContent = task.message || task.status; videoBgmResult.append(title, status);
+    if (task.endingBgmName && task.cutSeconds != null && task.holdSeconds != null) {
+        const effectLabels = {NONE: "无特效", SHAKE: "轻微震动", ZOOM: "慢速放大", FLASH: "闪白强调"};
+        const options = document.createElement("p"); options.className = "muted";
+        options.textContent = `截取 ${Number(task.cutSeconds).toFixed(2)} 秒 · 定格 ${Number(task.holdSeconds).toFixed(2)} 秒 · ${effectLabels[task.effect] || task.effect || "轻微震动"}`;
+        videoBgmResult.append(options);
+    }
     if (task.error) { const error = document.createElement("p"); error.className = "form-error"; error.textContent = task.error; videoBgmResult.append(error); }
     if (task.outputUrl) { const video = document.createElement("video"); video.controls = true; video.preload = "metadata"; video.src = task.outputUrl; video.className = "video-bgm-output"; const link = document.createElement("a"); link.href = task.outputUrl; link.target = "_blank"; link.download = task.outputFileName || "bgm-video.mp4"; link.textContent = `打开成品（${task.outputFileName || "bgm-video.mp4"}）`; videoBgmResult.append(video, link); }
 }

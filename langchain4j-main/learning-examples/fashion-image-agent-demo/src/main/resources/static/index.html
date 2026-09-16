@@ -292,8 +292,13 @@
             <label class="file-picker">选择原视频（MP4/MOV/MKV/WEBM）<input id="video-bgm-video" type="file" accept="video/mp4,video/quicktime,video/x-matroska,video/webm" required></label>
             <label>选择 BGM<select id="video-bgm-select" required><option value="">正在读取本地 BGM…</option></select><audio id="video-bgm-audio" class="bgm-preview" controls preload="none" hidden></audio></label>
             <label>成品视频名称<input id="video-bgm-name" type="text" maxlength="120" placeholder="例如：夏日街拍成片（默认自动命名）"></label>
-            <label class="video-bgm-ending-toggle"><span><input id="video-bgm-ending" type="checkbox"> 首尾反转效果</span><small>最后 3.5 秒定格并加入震动与结尾音效</small></label>
-            <label id="video-bgm-ending-wrap" hidden>选择结尾 BGM<select id="video-bgm-ending-select"><option value="">请先勾选首尾效果</option></select><audio id="video-bgm-ending-audio" class="bgm-preview" controls preload="none" hidden></audio></label>
+            <label class="video-bgm-ending-toggle"><span><input id="video-bgm-ending" type="checkbox"> 首尾反转效果</span><small>在指定时间点裁断视频，追加自定义时长的定格特效和结尾 BGM</small></label>
+            <div id="video-bgm-ending-wrap" class="video-bgm-ending-options" hidden>
+                <label>截取秒数<input id="video-bgm-cut-seconds" type="number" min="0.04" step="0.01" inputmode="decimal" placeholder="例如：27"><small>保留原视频从开头到此时间点</small></label>
+                <label>定格秒数<input id="video-bgm-hold-seconds" type="number" min="0.1" max="30" step="0.1" inputmode="decimal" value="3.5"><small>在截取点追加 0.1–30 秒定格</small></label>
+                <label>定格特效<select id="video-bgm-effect"><option value="SHAKE">轻微震动</option><option value="ZOOM">慢速放大</option><option value="FLASH">闪白强调</option><option value="NONE">无特效</option></select></label>
+                <label class="video-bgm-ending-music">选择结尾 BGM<select id="video-bgm-ending-select"><option value="">请先勾选首尾效果</option></select><audio id="video-bgm-ending-audio" class="bgm-preview" controls preload="none" hidden></audio></label>
+            </div>
             <div class="standalone-video-submit-row"><button id="video-bgm-submit" type="submit">开始合成</button><span id="video-bgm-message" class="video-import-status"></span></div>
         </form>
         <div id="video-bgm-result" class="video-bgm-result" hidden></div>
@@ -321,27 +326,43 @@
             <span class="video-api-badge">GPT Image 2 · 16:9</span>
         </div>
         <p class="intro-copy">上传一张图片，调用过审重绘工作流生成合规的16:9档案图。生成结果会自动保存到 E:\\AI过审图。</p>
+        <div class="audit-redraw-tabs" role="tablist" aria-label="过审重绘视图">
+            <button class="is-active" type="button" role="tab" aria-selected="true" data-audit-redraw-tab="create">开始重绘</button>
+            <button type="button" role="tab" aria-selected="false" data-audit-redraw-tab="history">重绘记录</button>
+        </div>
+        <div data-audit-redraw-panel="create">
         <form id="audit-redraw-form" class="direct-outfit-form">
             <label class="file-picker">选择图片（PNG/JPG/WEBP）<input id="audit-redraw-image" type="file" accept="image/png,image/jpeg,image/webp" required></label>
             <div class="direct-outfit-preview"><img id="audit-redraw-preview" alt="待重绘图片预览" hidden></div>
             <div class="standalone-video-submit-row"><button id="audit-redraw-submit" type="submit">开始过审重绘</button><span id="audit-redraw-message" class="video-import-status"></span></div>
         </form>
         <div id="audit-redraw-result" class="direct-outfit-result" hidden></div>
+        </div>
+        <div data-audit-redraw-panel="history" hidden>
+            <div class="experience-heading"><div><h3>重绘记录</h3><p>查看原图与过审重绘结果，点击图片可放大。</p></div><button id="refresh-audit-redraw-history" type="button">刷新记录</button></div>
+            <div id="audit-redraw-history-message" class="video-catalog-status">正在读取重绘记录…</div>
+            <div id="audit-redraw-history" class="audit-redraw-history"></div>
+        </div>
     </section>
 
 
     <section class="direct-outfit-studio view-panel" data-view-panel="gpt-images" aria-labelledby="gpt-images-title" hidden>
         <div class="knowledge-heading"><div><p class="eyebrow">GPT IMAGE 2</p><h2 id="gpt-images-title">GPT 文生图</h2></div><span class="video-api-badge">OpenAI Images API</span></div>
-        <form id="gpt-images-form" class="direct-outfit-form"><label>图片提示词<textarea id="gpt-images-prompt" rows="8" placeholder="例如：白底人物设定图，正面全身，写实影视风格，人物名称写在图片下方"></textarea></label><div class="standalone-video-submit-row"><button id="gpt-images-submit" type="submit">生成图片</button><span id="gpt-images-message" class="video-import-status">支持文生图，结果可查看和下载。</span></div></form>
+        <form id="gpt-images-form" class="direct-outfit-form">
+            <label>图片提示词<textarea id="gpt-images-prompt" rows="8" placeholder="例如：白底人物设定图，正面全身，写实影视风格，人物名称写在图片下方"></textarea></label>
+            <label class="file-picker">参考图片（可选，最多 16 张）<input id="gpt-images-reference" type="file" accept="image/png,image/jpeg,image/webp" multiple></label>
+            <div id="gpt-images-reference-preview" class="gpt-images-reference-preview" hidden></div>
+            <div class="standalone-video-submit-row"><button id="gpt-images-submit" type="submit">生成图片</button><span id="gpt-images-message" class="video-import-status">不上传参考图时使用文生图，上传后自动使用图生图。</span></div>
+        </form>
         <div id="gpt-images-result" class="direct-outfit-result" hidden></div>
     </section>
 
     <section class="direct-outfit-studio video-script-studio view-panel" data-view-panel="video-script" aria-labelledby="video-script-title" hidden>
         <div class="knowledge-heading">
-            <div><p class="eyebrow">QWEN VIDEO SCRIPT</p><h2 id="video-script-title">视频脚本</h2></div>
-            <span class="video-api-badge">通义千问 · 多模态分析</span>
+            <div><p class="eyebrow">VIDEO SCRIPT</p><h2 id="video-script-title">视频脚本</h2></div>
+            <span class="video-api-badge">千问 / Gemini 3.7 · 多模态分析</span>
         </div>
-        <p class="intro-copy">可粘贴视频地址，或直接上传本地视频交给千问生成可复刻的影视脚本。人物服装与样貌不在文案中描述，按上传参考图保持一致。</p>
+        <p class="intro-copy">可粘贴视频地址，或直接上传本地视频，选择千问或 Gemini 3.7 生成可复刻的影视脚本。人物服装与样貌不在文案中描述，按上传参考图保持一致。</p>
         <div class="video-script-tabs" role="tablist" aria-label="视频脚本视图">
             <button class="is-active" type="button" role="tab" aria-selected="true" data-video-script-tab="submit">提交任务</button>
             <button type="button" role="tab" aria-selected="false" data-video-script-tab="list">列表查询</button>
@@ -355,6 +376,10 @@
                 </fieldset>
                 <label id="video-script-address-wrap">视频地址<textarea id="video-script-address" rows="3" placeholder="粘贴视频地址"></textarea></label>
                 <label id="video-script-file-wrap" hidden>视频文件<input id="video-script-file" type="file" accept="video/*,.mp4,.mov,.webm,.m4v,.mkv,.avi"></label>
+                <label>解析模型<select id="video-script-model">
+                    <option value="GEMINI">Gemini 3.7（原生视频接口）</option>
+                    <option value="QWEN">通义千问（原有接口）</option>
+                   </select></label>
                 <div class="standalone-video-submit-row">
                     <button id="video-script-download" type="button">只准备视频</button>
                     <button id="video-script-submit" type="submit">准备并解析</button>

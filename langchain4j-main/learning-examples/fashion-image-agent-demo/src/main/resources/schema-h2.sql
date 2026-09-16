@@ -69,8 +69,9 @@ CREATE INDEX IF NOT EXISTS idx_comfyui_video_account_created ON comfyui_video_ge
 CREATE TABLE IF NOT EXISTS qwen_video_script_job (
     id VARCHAR(36) PRIMARY KEY, source_address CLOB NOT NULL, source_file_name VARCHAR(255),
     video_path VARCHAR(1000), status VARCHAR(24) NOT NULL, message VARCHAR(1000), script_text CLOB,
-    error_message CLOB, created_at TIMESTAMP(6) NOT NULL, updated_at TIMESTAMP(6) NOT NULL
+    error_message CLOB, model_name VARCHAR(24) DEFAULT 'QWEN', created_at TIMESTAMP(6) NOT NULL, updated_at TIMESTAMP(6) NOT NULL
 );
+ALTER TABLE qwen_video_script_job ADD COLUMN IF NOT EXISTS model_name VARCHAR(24) DEFAULT 'QWEN';
 
 CREATE TABLE IF NOT EXISTS app_account (
     id VARCHAR(36) PRIMARY KEY, username VARCHAR(80) NOT NULL UNIQUE, password_hash VARCHAR(100) NOT NULL,

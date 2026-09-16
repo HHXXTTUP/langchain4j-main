@@ -15,7 +15,6 @@ import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
 import dev.learning.fashionagent.ai.FashionReferenceSpec;
 import dev.learning.fashionagent.learning.FashionLearningRepository;
 import dev.learning.fashionagent.learning.LearnedFashionExperience;
-import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,6 +33,8 @@ public class LocalFashionKnowledgeRetriever implements FashionKnowledgeRetriever
     private final FashionRagProperties properties;
     private final EmbeddingStore<TextSegment> embeddingStore = new InMemoryEmbeddingStore<>();
     private final FashionLearningRepository learningRepository;
+    private volatile String unavailableReason;
+    private volatile boolean initializationAttempted;
     private int indexedSegments;
 
     public LocalFashionKnowledgeRetriever(
@@ -51,43 +52,59 @@ public class LocalFashionKnowledgeRetriever implements FashionKnowledgeRetriever
         this.learningRepository = learningRepository;
     }
 
-    @PostConstruct
-    public void initialize() {
+    /** Lazily loads the optional knowledge directory on first actual retrieval. */
+    public synchronized void initialize() {
+        if (initializationAttempted) {
+            return;
+        }
+        initializationAttempted = true;
         Path knowledgeDirectory = properties.getKnowledgeDirectory().toAbsolutePath().normalize();
         if (!Files.isDirectory(knowledgeDirectory)) {
-            throw new IllegalStateException("服装 RAG 知识目录不存在：" + knowledgeDirectory);
+            disable("服装 RAG 知识目录不存在，使用该功能时请配置目录：" + knowledgeDirectory);
+            return;
         }
+        try {
+            List<Document> documents = loadMarkdownDocuments(knowledgeDirectory);
+            if (documents.isEmpty()) {
+                disable("服装 RAG 知识目录没有可用的 Markdown 文档，使用该功能时请向目录添加 .md 文件：" + knowledgeDirectory);
+                return;
+            }
 
-        List<Document> documents = loadMarkdownDocuments(knowledgeDirectory);
-        if (documents.isEmpty()) {
-            throw new IllegalStateException("服装 RAG 知识目录没有可用的 Markdown 文档：" + knowledgeDirectory);
+            DocumentSplitter splitter = DocumentSplitters.recursive(
+                    positive(properties.getMaxSegmentSize(), "max-segment-size"),
+                    nonNegative(properties.getSegmentOverlap(), "segment-overlap"));
+            List<TextSegment> segments = splitter.splitAll(documents);
+            if (segments.isEmpty()) {
+                disable("服装 RAG 知识目录中的文档没有可用内容");
+                return;
+            }
+
+            List<Embedding> embeddings = embeddingModel.embedAll(segments).content();
+            embeddingStore.addAll(embeddings, segments);
+            indexedSegments = segments.size();
+            int learnedExperiences = loadLearnedExperiences();
+            LOGGER.info(
+                    "服装 RAG 知识库初始化完成 directory={} documents={} segments={} learnedExperiences={} embeddingDimension={}",
+                    knowledgeDirectory,
+                    documents.size(),
+                    indexedSegments,
+                    learnedExperiences,
+                    embeddingModel.dimension());
+            unavailableReason = null;
+        } catch (RuntimeException exception) {
+            disable("服装 RAG 初始化失败，使用该功能时请检查知识目录和模型依赖：" + exception.getMessage());
         }
-
-        DocumentSplitter splitter = DocumentSplitters.recursive(
-                positive(properties.getMaxSegmentSize(), "max-segment-size"),
-                nonNegative(properties.getSegmentOverlap(), "segment-overlap"));
-        List<TextSegment> segments = splitter.splitAll(documents);
-        if (segments.isEmpty()) {
-            throw new IllegalStateException("服装 RAG 文档切分后没有产生任何知识片段");
-        }
-
-        List<Embedding> embeddings = embeddingModel.embedAll(segments).content();
-        embeddingStore.addAll(embeddings, segments);
-        indexedSegments = segments.size();
-        int learnedExperiences = loadLearnedExperiences();
-        LOGGER.info(
-                "服装 RAG 知识库初始化完成 directory={} documents={} segments={} learnedExperiences={} embeddingDimension={}",
-                knowledgeDirectory,
-                documents.size(),
-                indexedSegments,
-                learnedExperiences,
-                embeddingModel.dimension());
     }
 
     @Override
     public FashionKnowledgeContext retrieve(String userDescription, FashionReferenceSpec referenceSpec) {
+        if (!initializationAttempted) {
+            initialize();
+        }
         if (indexedSegments == 0) {
-            throw new IllegalStateException("服装 RAG 知识库尚未初始化");
+            return FashionKnowledgeContext.disabled(unavailableReason == null
+                    ? "服装 RAG 尚未初始化，使用该功能时请先配置知识目录"
+                    : unavailableReason);
         }
         String query = buildQuery(userDescription, referenceSpec);
         Embedding queryEmbedding = embeddingModel.embed(QUERY_PREFIX + query).content();
@@ -111,6 +128,10 @@ public class LocalFashionKnowledgeRetriever implements FashionKnowledgeRetriever
 
     @Override
     public synchronized void addExperience(LearnedFashionExperience experience) {
+        if (unavailableReason != null || indexedSegments == 0) {
+            LOGGER.debug("服装 RAG 未启用，跳过成功经验写入：{}", unavailableReason);
+            return;
+        }
         TextSegment segment = experienceSegment(experience);
         embeddingStore.add(embeddingModel.embed(segment).content(), segment);
         indexedSegments++;
@@ -134,6 +155,12 @@ public class LocalFashionKnowledgeRetriever implements FashionKnowledgeRetriever
         } catch (IOException exception) {
             throw new IllegalStateException("读取服装 RAG 知识目录失败：" + directory, exception);
         }
+    }
+
+    private void disable(String reason) {
+        unavailableReason = reason;
+        indexedSegments = 0;
+        LOGGER.warn("{}", reason);
     }
 
     private int loadLearnedExperiences() {

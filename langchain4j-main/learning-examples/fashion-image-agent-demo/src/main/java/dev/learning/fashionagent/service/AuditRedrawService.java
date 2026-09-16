@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Comparator;
 import dev.learning.fashionagent.config.GptImageProperties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
@@ -86,6 +87,7 @@ public class AuditRedrawService {
             Path input = work.resolve("input" + extension(image.getOriginalFilename()));
             image.transferTo(input);
             Job job = new Job(id, image.getOriginalFilename(), Instant.now());
+            job.input = input;
             jobs.put(id, job);
             LOGGER.info("GPT 图生图任务已创建 jobId={} inputFile={} inputBytes={} model={}",
                     id, image.getOriginalFilename(), image.getSize(), imageProperties.getModel());
@@ -100,6 +102,19 @@ public class AuditRedrawService {
         Job job = jobs.get(id);
         if (job == null) throw new IllegalArgumentException("过审重绘任务不存在");
         return job.view();
+    }
+
+    public List<AuditRedrawView> list() {
+        return jobs.values().stream().map(Job::view)
+                .sorted(Comparator.comparing(AuditRedrawView::createdAt).reversed()).toList();
+    }
+
+    public Path input(UUID id) {
+        Job job = jobs.get(id);
+        if (job == null || job.input == null || !Files.isRegularFile(job.input)) {
+            throw new IllegalStateException("过审重绘原图不存在");
+        }
+        return job.input;
     }
 
     public Path output(UUID id) {
@@ -159,13 +174,14 @@ public class AuditRedrawService {
         return current.getMessage() == null ? current.toString() : current.getMessage();
     }
 
-    public record AuditRedrawView(UUID id, String inputFileName, String status, String message,
+    public record AuditRedrawView(UUID id, String inputFileName, String inputUrl, String status, String message,
                                   String error, String outputUrl, String outputFileName, Instant createdAt) {}
 
     private static final class Job {
         private final UUID id;
         private final String inputFileName;
         private final Instant createdAt;
+        private volatile Path input;
         private volatile String status = "QUEUED";
         private volatile String message = "已接收过审重绘任务";
         private volatile String error;
@@ -178,7 +194,7 @@ public class AuditRedrawService {
         }
 
         private AuditRedrawView view() {
-            return new AuditRedrawView(id, inputFileName, status, message, error,
+            return new AuditRedrawView(id, inputFileName, input == null ? null : "/api/audit-redraw/" + id + "/input", status, message, error,
                     output == null ? null : "/api/audit-redraw/" + id + "/output",
                     output == null ? null : output.getFileName().toString(), createdAt);
         }

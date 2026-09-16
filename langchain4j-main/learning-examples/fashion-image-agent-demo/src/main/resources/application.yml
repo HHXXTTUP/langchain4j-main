@@ -145,6 +145,7 @@ gemini:
   base-url: ${GEMINI_BASE_URL:https://api.rtoc.cc}
   api-key: ${NEW_API_KEY:}
   model: ${GEMINI_MODEL:gemini-3.7-flash}
+  max-video-bytes: ${GEMINI_MAX_VIDEO_BYTES:52428800}
 
 gpt-images:
   base-url: ${GPT_IMAGES_BASE_URL:https://api.rtoc.cc}

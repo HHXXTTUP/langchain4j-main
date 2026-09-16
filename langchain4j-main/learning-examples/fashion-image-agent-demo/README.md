@@ -353,6 +353,24 @@ mvn spring-boot:run
 
 浏览器打开 [http://localhost:8088](http://localhost:8088)。
 
+### 打包为免安装 Java 的应用包
+
+默认应用包只包含业务 JAR，不会自动携带 Java。打包时设置
+`FASHION_RUNTIME_DIRECTORY`，指向一个与目标系统匹配的 Java 17 便携运行时，
+服务会把它放入 ZIP 的 `runtime/` 目录；用户解压后可直接双击 `start.bat`，无需
+另外安装 JDK。例如可先用 JDK 的 `jlink` 生成裁剪运行时：
+
+```powershell
+jlink --add-modules java.se,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.unsupported,jdk.zipfs `
+  --strip-debug --no-man-pages --no-header-files --compress=2 `
+  --output runtime
+$env:FASHION_RUNTIME_DIRECTORY = (Resolve-Path .\runtime).Path
+```
+
+`onnxruntime`、Tokenizer 和中文 BGE 模型是当前安装包体积的主要来源（用于本地
+服装语义检索），不能在保留 RAG 功能的前提下删除。使用 `jlink` 裁剪 Java 运行时
+可以避免把完整 JDK 的开发工具一并放入压缩包。
+
 常规测试不会调用外部模型服务。真实 GLM 多模态测试需要显式启用，并提供一张本地服装图片：
 
 ```powershell

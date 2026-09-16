@@ -46,13 +46,22 @@ public class BgmVideoCompositionService {
     }
 
     public BgmJobView compose(MultipartFile video, String bgmName, String outputName) {
-        return compose(video, bgmName, outputName, false, null);
+        return compose(video, bgmName, outputName, false, null, null, null, null);
     }
 
     public BgmJobView compose(MultipartFile video, String bgmName, String outputName, boolean ending, String endingBgmName) {
+        return compose(video, bgmName, outputName, ending, endingBgmName, null, null, null);
+    }
+
+    public BgmJobView compose(MultipartFile video, String bgmName, String outputName, boolean ending,
+                              String endingBgmName, Double cutSeconds, Double holdSeconds, String effect) {
         if (video == null || video.isEmpty()) throw new IllegalArgumentException("请上传原视频");
         Path bgm = resolveBgm(bgmName); UUID id = UUID.randomUUID();
         Path endingBgm = ending ? resolveEndingBgm(endingBgmName) : null;
+        validateEndingOptions(ending, cutSeconds, holdSeconds);
+        double requestedCut = cutSeconds == null ? -1 : cutSeconds;
+        double requestedHold = holdSeconds == null ? -1 : holdSeconds;
+        String selectedEffect = normalizeEffect(effect);
         String safeOutputName = normalizeOutputName(outputName, video.getOriginalFilename());
         Path outputDirectory = effectiveOutputDirectory();
         try {
@@ -61,7 +70,8 @@ public class BgmVideoCompositionService {
             String original = video.getOriginalFilename() == null ? "source.mp4" : video.getOriginalFilename();
             Path source = work.resolve("source" + extension(original)); video.transferTo(source);
             Path output = outputDirectory.resolve(safeOutputName);
-            Job job = new Job(id, original, bgm.getFileName().toString(), endingBgm == null ? null : endingBgm.getFileName().toString(), safeOutputName, work, output, Instant.now()); jobs.put(id, job);
+            Job job = new Job(id, original, bgm.getFileName().toString(), endingBgm == null ? null : endingBgm.getFileName().toString(),
+                    safeOutputName, work, output, requestedCut, requestedHold, selectedEffect, Instant.now()); jobs.put(id, job);
             executor.execute(() -> run(job, source, bgm, endingBgm)); return job.view();
         } catch (IOException e) { throw new IllegalStateException("无法保存原视频", e); }
     }
@@ -86,7 +96,20 @@ public class BgmVideoCompositionService {
     public Path output(UUID id) { Job job = jobs.get(id); if (job == null || job.output == null || !Files.isRegularFile(job.output)) throw new IllegalStateException("视频尚未合成完成"); return job.output; }
 
     private void run(Job job, Path source, Path bgm, Path endingBgm) {
-        try { job.status = "PROCESSING"; job.message = endingBgm == null ? "正在按原视频时长循环并裁剪 BGM" : "正在处理最后 3.5 秒定格震动并混入结尾 BGM"; if (endingBgm == null) media.addBackgroundMusic(source, bgm, job.output, job.work.resolve("ffmpeg.log")); else media.addBackgroundMusicWithEnding(source, bgm, endingBgm, job.output, job.work.resolve("ffmpeg.log")); job.status = "SUCCESS"; job.message = "视频合成完成"; }
+        try {
+            job.status = "PROCESSING";
+            if (endingBgm == null) {
+                job.message = "正在按原视频时长循环并裁剪 BGM";
+                media.addBackgroundMusic(source, bgm, job.output, job.work.resolve("ffmpeg.log"));
+            } else {
+                job.message = job.cutSeconds > 0 && job.holdSeconds > 0
+                        ? "正在截取前 " + formatSeconds(job.cutSeconds) + " 秒并定格 " + formatSeconds(job.holdSeconds) + " 秒，应用" + effectLabel(job.effect)
+                        : "正在按默认规则处理末尾 3.5 秒定格，应用" + effectLabel(job.effect);
+                media.addBackgroundMusicWithEnding(source, bgm, endingBgm, job.output, job.work.resolve("ffmpeg.log"),
+                        job.cutSeconds, job.holdSeconds, job.effect);
+            }
+            job.status = "SUCCESS"; job.message = "视频合成完成";
+        }
         catch (Exception e) { job.status = "FAILED"; job.message = "视频合成失败"; job.error = rootMessage(e); }
     }
 
@@ -121,12 +144,37 @@ public class BgmVideoCompositionService {
     private static long fileSize(Path path) { try { return Files.size(path); } catch (IOException e) { return 0; } }
     private static String extension(String name) { int i = name.lastIndexOf('.'); return i < 0 ? ".mp4" : name.substring(i).toLowerCase(); }
     private static String rootMessage(Throwable e) { Throwable c = e; while (c.getCause() != null) c = c.getCause(); return c.getMessage() == null ? c.toString() : c.getMessage(); }
+    private static String normalizeEffect(String effect) {
+        if (effect == null || effect.isBlank()) return "SHAKE";
+        return switch (effect.trim().toUpperCase()) {
+            case "NONE", "SHAKE", "ZOOM", "FLASH" -> effect.trim().toUpperCase();
+            default -> throw new IllegalArgumentException("不支持的定格特效：" + effect);
+        };
+    }
+    private static void validateEndingOptions(boolean ending, Double cutSeconds, Double holdSeconds) {
+        if (!ending) return;
+        if (cutSeconds != null && (!Double.isFinite(cutSeconds) || cutSeconds <= 0)) {
+            throw new IllegalArgumentException("截取秒数必须大于 0");
+        }
+        if (holdSeconds != null && (!Double.isFinite(holdSeconds) || holdSeconds < 0.1 || holdSeconds > 30)) {
+            throw new IllegalArgumentException("定格秒数必须在 0.1 到 30 秒之间");
+        }
+    }
+    private static String effectLabel(String effect) {
+        return switch (normalizeEffect(effect)) {
+            case "NONE" -> "无特效";
+            case "ZOOM" -> "慢速放大";
+            case "FLASH" -> "闪白强调";
+            default -> "轻微震动";
+        };
+    }
+    private static String formatSeconds(double seconds) { return String.format(java.util.Locale.ROOT, "%.2f", seconds); }
     public record BgmFile(String name, String label, long size) {}
-    public record BgmJobView(UUID id, String sourceFileName, String bgmName, String endingBgmName, String status, String message, String error, String outputUrl, String outputFileName, Instant createdAt) {}
+    public record BgmJobView(UUID id, String sourceFileName, String bgmName, String endingBgmName, String status, String message, String error, String outputUrl, String outputFileName, Instant createdAt, Double cutSeconds, Double holdSeconds, String effect) {}
     private static final class Job {
-        private final UUID id; private final String source; private final String bgm; private final String endingBgm; private final String outputName; private final Path work; private final Path output; private final Instant created;
+        private final UUID id; private final String source; private final String bgm; private final String endingBgm; private final String outputName; private final Path work; private final Path output; private final double cutSeconds; private final double holdSeconds; private final String effect; private final Instant created;
         private volatile String status = "QUEUED"; private volatile String message = "已接收合成任务"; private volatile String error;
-        private Job(UUID id, String source, String bgm, String endingBgm, String outputName, Path work, Path output, Instant created) { this.id=id; this.source=source; this.bgm=bgm; this.endingBgm=endingBgm; this.outputName=outputName; this.work=work; this.output=output; this.created=created; }
-        private BgmJobView view() { return new BgmJobView(id, source, bgm, endingBgm, status, message, error, status.equals("SUCCESS") ? "/api/video-bgm-compositions/" + id + "/output" : null, outputName, created); }
+        private Job(UUID id, String source, String bgm, String endingBgm, String outputName, Path work, Path output, double cutSeconds, double holdSeconds, String effect, Instant created) { this.id=id; this.source=source; this.bgm=bgm; this.endingBgm=endingBgm; this.outputName=outputName; this.work=work; this.output=output; this.cutSeconds=cutSeconds; this.holdSeconds=holdSeconds; this.effect=effect; this.created=created; }
+        private BgmJobView view() { return new BgmJobView(id, source, bgm, endingBgm, status, message, error, status.equals("SUCCESS") ? "/api/video-bgm-compositions/" + id + "/output" : null, outputName, created, cutSeconds < 0 ? null : cutSeconds, holdSeconds < 0 ? null : holdSeconds, effect); }
     }
 }

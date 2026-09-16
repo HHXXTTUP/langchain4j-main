@@ -1,6 +1,7 @@
 package dev.learning.fashionagent.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import dev.learning.fashionagent.config.GeminiProperties;
 import dev.learning.fashionagent.config.QwenProperties;
 import dev.learning.fashionagent.video.QwenVideoScriptRepository;
 import dev.learning.fashionagent.video.QwenVideoScriptSnapshot;
@@ -47,13 +48,15 @@ public class QwenVideoScriptService {
     private final QwenVideoScriptRepository repository;
     private final Executor executor;
     private final QwenRestClientProvider clients;
+    private final GeminiProperties geminiProperties;
+    private final GeminiTextClient geminiClient;
     private final URI chatCompletionsEndpoint;
 
-    public QwenVideoScriptService(QwenProperties properties, SnapAnyVideoImportService snapAny,
+    public QwenVideoScriptService(QwenProperties properties, GeminiProperties geminiProperties, GeminiTextClient geminiClient, SnapAnyVideoImportService snapAny,
                                   QwenVideoScriptRepository repository,
                                   @Qualifier("storyVideoExecutor") Executor executor,
                                   QwenRestClientProvider clients) {
-        this.properties = properties; this.snapAny = snapAny; this.repository = repository;
+        this.properties = properties; this.geminiProperties = geminiProperties; this.geminiClient = geminiClient; this.snapAny = snapAny; this.repository = repository;
         this.executor = executor; this.clients = clients;
         String base = properties.getBaseUrl().toString().replaceAll("/+$", "");
         this.chatCompletionsEndpoint = URI.create(base + "/chat/completions");
@@ -63,9 +66,14 @@ public class QwenVideoScriptService {
     }
 
     public QwenVideoScriptView create(String address, boolean parseImmediately) {
+        return create(address, parseImmediately, "QWEN");
+    }
+
+    public QwenVideoScriptView create(String address, boolean parseImmediately, String model) {
         if (address == null || address.isBlank()) throw new IllegalArgumentException("请输入视频地址");
-        String apiKey = parseImmediately ? properties.requiredApiKey() : null;
-        Job job = new Job(UUID.randomUUID(), address.trim(), Instant.now()); save(job);
+        String selectedModel = normalizeModel(model);
+        String apiKey = parseImmediately ? requiredApiKey(selectedModel) : null;
+        Job job = new Job(UUID.randomUUID(), address.trim(), Instant.now(), selectedModel); save(job);
         executor.execute(() -> download(job, parseImmediately, apiKey));
         return job.view();
     }
@@ -74,36 +82,41 @@ public class QwenVideoScriptService {
 
     /** Stores a browser-uploaded video locally and sends it through the same analysis pipeline as URL imports. */
     public QwenVideoScriptView create(MultipartFile upload, boolean parseImmediately) {
+        return create(upload, parseImmediately, "QWEN");
+    }
+
+    public QwenVideoScriptView create(MultipartFile upload, boolean parseImmediately, String model) {
         if (upload == null || upload.isEmpty()) throw new IllegalArgumentException("请上传视频文件");
         String originalName = originalFileName(upload.getOriginalFilename());
         String extension = uploadExtension(originalName, upload.getContentType());
         if (!isVideoUpload(extension, upload.getContentType())) {
             throw new IllegalArgumentException("仅支持视频文件（MP4、MOV、WEBM、M4V、MKV、AVI）");
         }
-        if (upload.getSize() > properties.getMaxVideoBytes()) {
-            throw new IllegalArgumentException("视频文件不能超过 " + properties.getMaxVideoBytes() / (1024 * 1024) + " MB");
+        String selectedModel = normalizeModel(model);
+        if (upload.getSize() > maxVideoBytes(selectedModel)) {
+            throw new IllegalArgumentException(modelLabel(selectedModel) + "视频文件不能超过 " + maxVideoBytes(selectedModel) / (1024 * 1024) + " MB");
         }
-        String apiKey = parseImmediately ? properties.requiredApiKey() : null;
+        String apiKey = parseImmediately ? requiredApiKey(selectedModel) : null;
         UUID id = UUID.randomUUID();
         Path work = Path.of(properties.getOutputDirectory()).toAbsolutePath().normalize().resolve(id.toString());
-        Job job = new Job(id, "本地上传", Instant.now());
+        Job job = new Job(id, "本地上传", Instant.now(), selectedModel);
         try {
             Files.createDirectories(work);
             Path target = work.resolve("source" + extension);
             upload.transferTo(target);
             long size = Files.size(target);
-            if (size <= 0 || size > properties.getMaxVideoBytes()) {
+            if (size <= 0 || size > maxVideoBytes(selectedModel)) {
                 Files.deleteIfExists(target);
-                throw new IllegalArgumentException("视频文件大小不符合千问接口限制：" + size + " bytes");
+                throw new IllegalArgumentException("视频文件大小不符合" + modelLabel(selectedModel) + "接口限制：" + size + " bytes");
             }
             job.videoPath = target;
             job.sourceFileName = originalName;
             job.status = "DOWNLOADED";
-            job.message = parseImmediately ? "视频上传完成，正在准备千问分析" : "视频上传完成，可点击生成文案";
+            job.message = parseImmediately ? "视频上传完成，正在准备" + modelLabel(selectedModel) + "分析" : "视频上传完成，可点击生成文案";
             save(job);
             if (parseImmediately) {
                 job.status = "ANALYZING";
-                job.message = "正在调用千问分析脚本";
+                job.message = "正在调用" + modelLabel(selectedModel) + "分析脚本";
                 save(job);
                 executor.execute(() -> analyze(job, apiKey));
             }
@@ -120,12 +133,12 @@ public class QwenVideoScriptService {
     public QwenVideoScriptView get(UUID id) { return require(id).view(); }
 
     public QwenVideoScriptView generate(UUID id) {
-        LOGGER.info("收到千问视频脚本分析请求 id={}", id);
+        LOGGER.info("收到视频脚本分析请求 id={}", id);
         Job job = require(id);
-        String apiKey = properties.requiredApiKey();
+        String apiKey = requiredApiKey(job.model);
         if (job.videoPath == null || !Files.isRegularFile(job.videoPath)) throw new IllegalStateException("视频尚未下载完成");
         if ("ANALYZING".equals(job.status)) return job.view();
-        job.status = "ANALYZING"; job.message = "正在调用千问分析脚本"; job.error = null; save(job);
+        job.status = "ANALYZING"; job.message = "正在调用" + modelLabel(job.model) + "分析脚本"; job.error = null; save(job);
         executor.execute(() -> analyze(job, apiKey));
         return job.view();
     }
@@ -142,10 +155,10 @@ public class QwenVideoScriptService {
             Files.createDirectories(work); job.status = "DOWNLOADING"; job.message = "正在通过 SnapAny 解析并下载视频"; save(job);
             Path video = snapAny.downloadFirst(job.address, work);
             long size = Files.size(video);
-            if (size <= 0 || size > properties.getMaxVideoBytes()) throw new IllegalStateException("视频文件大小不符合千问接口限制：" + size + " bytes");
+            if (size <= 0 || size > maxVideoBytes(job.model)) throw new IllegalStateException("视频文件大小不符合" + modelLabel(job.model) + "接口限制：" + size + " bytes");
             job.videoPath = video; job.sourceFileName = video.getFileName().toString(); job.status = "DOWNLOADED";
-            job.message = parseImmediately ? "视频下载完成，正在准备千问分析" : "视频下载完成，可点击生成文案"; save(job);
-            if (parseImmediately) { job.status = "ANALYZING"; job.message = "正在调用千问分析脚本"; save(job); analyze(job, apiKey); }
+            job.message = parseImmediately ? "视频下载完成，正在准备" + modelLabel(job.model) + "分析" : "视频下载完成，可点击生成文案"; save(job);
+            if (parseImmediately) { job.status = "ANALYZING"; job.message = "正在调用" + modelLabel(job.model) + "分析脚本"; save(job); analyze(job, apiKey); }
         } catch (Exception e) { fail(job, "视频下载失败", e); }
     }
 
@@ -181,13 +194,22 @@ public class QwenVideoScriptService {
 
     private void analyze(Job job, String apiKey) {
         try {
-            job.script = callQwenOnce(job.videoPath, job, apiKey);
+            job.script = "GEMINI".equals(job.model)
+                    ? callGeminiOnce(job.videoPath, job, apiKey)
+                    : callQwenOnce(job.videoPath, job, apiKey);
             Files.writeString(job.videoPath.resolveSibling("script.txt"), job.script, StandardCharsets.UTF_8);
             job.status = "SUCCESS"; job.message = "视频脚本生成完成"; save(job);
         } catch (Exception e) {
             LOGGER.error("千问视频脚本分析失败，视频文件保留不变 id={} file={}", job.id, job.videoPath, e);
             fail(job, "视频脚本生成失败", e);
         }
+    }
+
+    private String callGeminiOnce(Path video, Job job, String apiKey) throws IOException {
+        job.message = "正在调用 Gemini 3.7 分析脚本（单次请求）";
+        save(job);
+        return geminiClient.callVideo("视频脚本分析", FIXED_PROMPT, video,
+                job.address.startsWith("http://") || job.address.startsWith("https://") ? job.address : null, apiKey);
     }
 
     private String callQwenOnce(Path video, Job job, String apiKey) throws IOException {
@@ -252,7 +274,7 @@ public class QwenVideoScriptService {
     }
 
     private Job require(UUID id) { return repository.find(id).map(Job::from).orElseThrow(() -> new IllegalArgumentException("视频脚本任务不存在")); }
-    private void save(Job job) { Instant now = Instant.now(); job.updatedAt = now; repository.save(new QwenVideoScriptSnapshot(job.id, job.address, job.sourceFileName, job.videoPath, job.status, job.message, job.script, job.error, job.createdAt, now)); }
+    private void save(Job job) { Instant now = Instant.now(); job.updatedAt = now; repository.save(new QwenVideoScriptSnapshot(job.id, job.address, job.sourceFileName, job.videoPath, job.status, job.message, job.script, job.error, job.createdAt, now, job.model)); }
     private void fail(Job job, String message, Exception error) {
         job.status = "FAILED";
         job.message = "视频脚本生成失败".equals(message) && job.videoPath != null
@@ -287,13 +309,32 @@ public class QwenVideoScriptService {
         return false;
     }
 
-    public record QwenVideoScriptView(UUID id, String address, String sourceFileName, String status, String message, String script, String error, Instant createdAt, Instant updatedAt) {
-        static QwenVideoScriptView from(QwenVideoScriptSnapshot s) { return new QwenVideoScriptView(s.id(),s.address(),s.sourceFileName(),s.status(),s.message(),s.script(),s.error(),s.createdAt(),s.updatedAt()); }
+    public record QwenVideoScriptView(UUID id, String address, String sourceFileName, String status, String message, String script, String error, Instant createdAt, Instant updatedAt, String model) {
+        public QwenVideoScriptView(UUID id, String address, String sourceFileName, String status, String message, String script, String error, Instant createdAt, Instant updatedAt) {
+            this(id, address, sourceFileName, status, message, script, error, createdAt, updatedAt, "QWEN");
+        }
+        static QwenVideoScriptView from(QwenVideoScriptSnapshot s) { return new QwenVideoScriptView(s.id(),s.address(),s.sourceFileName(),s.status(),s.message(),s.script(),s.error(),s.createdAt(),s.updatedAt(),s.effectiveModel()); }
     }
     private static final class Job {
-        private final UUID id; private final String address; private final Instant createdAt; private volatile Instant updatedAt; private volatile String sourceFileName; private volatile Path videoPath; private volatile String status="QUEUED"; private volatile String message="已接收视频任务"; private volatile String script; private volatile String error;
-        private Job(UUID id,String address,Instant createdAt){this.id=id;this.address=address;this.createdAt=createdAt;this.updatedAt=createdAt;}
-        private QwenVideoScriptView view(){return new QwenVideoScriptView(id,address,sourceFileName,status,message,script,error,createdAt,updatedAt);}
-        private static Job from(QwenVideoScriptSnapshot s){Job j=new Job(s.id(),s.address(),s.createdAt());j.sourceFileName=s.sourceFileName();j.videoPath=s.videoPath();j.status=s.status();j.message=s.message();j.script=s.script();j.error=s.error();j.updatedAt=s.updatedAt();return j;}
+        private final UUID id; private final String address; private final Instant createdAt; private final String model; private volatile Instant updatedAt; private volatile String sourceFileName; private volatile Path videoPath; private volatile String status="QUEUED"; private volatile String message="已接收视频任务"; private volatile String script; private volatile String error;
+        private Job(UUID id,String address,Instant createdAt, String model){this.id=id;this.address=address;this.createdAt=createdAt;this.model=normalizeModel(model);this.updatedAt=createdAt;}
+        private QwenVideoScriptView view(){return new QwenVideoScriptView(id,address,sourceFileName,status,message,script,error,createdAt,updatedAt,model);}
+        private static Job from(QwenVideoScriptSnapshot s){Job j=new Job(s.id(),s.address(),s.createdAt(),s.effectiveModel());j.sourceFileName=s.sourceFileName();j.videoPath=s.videoPath();j.status=s.status();j.message=s.message();j.script=s.script();j.error=s.error();j.updatedAt=s.updatedAt();return j;}
+    }
+
+    private String requiredApiKey(String model) {
+        return "GEMINI".equals(normalizeModel(model)) ? geminiProperties.requiredApiKey() : properties.requiredApiKey();
+    }
+
+    private long maxVideoBytes(String model) {
+        return "GEMINI".equals(normalizeModel(model)) ? geminiProperties.getMaxVideoBytes() : properties.getMaxVideoBytes();
+    }
+
+    private static String normalizeModel(String model) {
+        return "GEMINI".equalsIgnoreCase(model) ? "GEMINI" : "QWEN";
+    }
+
+    private static String modelLabel(String model) {
+        return "GEMINI".equals(normalizeModel(model)) ? "Gemini 3.7" : "千问";
     }
 }

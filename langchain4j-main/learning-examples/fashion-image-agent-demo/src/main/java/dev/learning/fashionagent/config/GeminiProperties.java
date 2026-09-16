@@ -13,6 +13,7 @@ public class GeminiProperties {
     private URI baseUrl = URI.create("https://api.rtoc.cc");
     private String apiKey;
     private String model = "gemini-3.7-flash";
+    private long maxVideoBytes = 50L * 1024 * 1024;
 
     public URI getBaseUrl() { return baseUrl; }
     public void setBaseUrl(URI baseUrl) { this.baseUrl = baseUrl; }
@@ -20,6 +21,8 @@ public class GeminiProperties {
     public void setApiKey(String apiKey) { this.apiKey = apiKey; }
     public String getModel() { return model; }
     public void setModel(String model) { this.model = model; }
+    public long getMaxVideoBytes() { return maxVideoBytes; }
+    public void setMaxVideoBytes(long maxVideoBytes) { this.maxVideoBytes = maxVideoBytes; }
 
     public String requiredApiKey() {
         String effective = getApiKey();

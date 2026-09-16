@@ -32,18 +32,23 @@ public class QwenVideoScriptController {
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     ResponseEntity<QwenVideoScriptView> create(@RequestBody(required = false) CreateRequest request) {
         if (request == null) throw new IllegalArgumentException("address is required");
-        LOGGER.info("千问视频脚本任务创建请求 parse={} addressPresent={}", request.shouldParse(),
+        LOGGER.info("视频脚本任务创建请求 model={} parse={} addressPresent={}", request.model(), request.shouldParse(),
                 request.address() != null && !request.address().isBlank());
-        return ResponseEntity.accepted().body(service.create(request.address(), request.shouldParse()));
+        return ResponseEntity.accepted().body("GEMINI".equalsIgnoreCase(request.model())
+                ? service.create(request.address(), request.shouldParse(), request.model())
+                : service.create(request.address(), request.shouldParse()));
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     ResponseEntity<QwenVideoScriptView> upload(@RequestPart("video") MultipartFile video,
-                                                @RequestParam(value = "parse", defaultValue = "true") boolean parse) {
-        LOGGER.info("千问视频脚本本地上传请求 parse={} file={} size={} contentType={}", parse,
+                                                @RequestParam(value = "parse", defaultValue = "true") boolean parse,
+                                                @RequestParam(value = "model", defaultValue = "QWEN") String model) {
+        LOGGER.info("视频脚本本地上传请求 model={} parse={} file={} size={} contentType={}", model, parse,
                 video == null ? null : video.getOriginalFilename(), video == null ? 0 : video.getSize(),
                 video == null ? null : video.getContentType());
-        return ResponseEntity.accepted().body(service.create(video, parse));
+        return ResponseEntity.accepted().body("GEMINI".equalsIgnoreCase(model)
+                ? service.create(video, parse, model)
+                : service.create(video, parse));
     }
 
     @GetMapping
@@ -65,7 +70,8 @@ public class QwenVideoScriptController {
     @GetMapping("/{id}")
     QwenVideoScriptView get(@PathVariable UUID id) { return service.get(id); }
 
-    public record CreateRequest(String address, Boolean parse) {
+    public record CreateRequest(String address, Boolean parse, String model) {
+        public CreateRequest(String address, Boolean parse) { this(address, parse, "QWEN"); }
         public boolean shouldParse() { return parse == null || parse; }
     }
 }

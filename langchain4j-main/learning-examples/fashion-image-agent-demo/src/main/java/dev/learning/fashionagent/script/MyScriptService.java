@@ -216,7 +216,7 @@ public class MyScriptService {
                 .orElseThrow(() -> new IllegalArgumentException("请先生成或上传该人物的基础图"));
         try {
             List<Path> references = new ArrayList<>();
-            if (requestedImageSources != null) {
+            if (requestedImageSources != null && !requestedImageSources.isEmpty()) {
                 int index = 0;
                 for (String source : requestedImageSources) {
                     if (source == null || source.isBlank()) continue;
