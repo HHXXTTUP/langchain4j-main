@@ -7,6 +7,7 @@ import dev.learning.fashionagent.integration.runninghub.RunningHubException;
 import dev.learning.fashionagent.integration.runninghub.RunningHubTaskRunner;
 import java.net.URI;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Semaphore;
@@ -180,56 +181,42 @@ public class VideoMotionTransferService {
     private List<DownloadAttempt> downloadPlan(URI originalUri) {
         URI httpsUpgrade = trustedCosHttpsUpgrade(originalUri);
         if (httpsUpgrade != null && !httpsUpgrade.equals(originalUri)) {
-            // RunningHub has historically returned an http COS URL.  The
-            // endpoint's HTTP HEAD is reachable but its response body can
-            // stall, whereas the HTTPS object is the URL browsers normally
-            // use. Try the secure URL first and retain HTTP only as a final
-            // compatibility fallback.
-            if (chromiumDownloader != null && chromiumDownloader.isAvailable()) {
-                return List.of(
-                        new DownloadAttempt(httpsUpgrade, DownloadChannel.CHROMIUM),
-                        new DownloadAttempt(httpsUpgrade, DownloadChannel.BYTES),
-                        new DownloadAttempt(originalUri, DownloadChannel.CHROMIUM),
-                        new DownloadAttempt(originalUri, DownloadChannel.BYTES));
-            }
-            return List.of(
-                    new DownloadAttempt(httpsUpgrade, DownloadChannel.BYTES),
-                    new DownloadAttempt(originalUri, DownloadChannel.BYTES));
+            // RunningHub has historically returned an http COS URL. Prefer
+            // the secure URL and use the browser-compatible plan before the
+            // legacy HTTP compatibility fallback.
+            return runningHubDownloadPlan(httpsUpgrade, originalUri);
         }
         if ("https".equalsIgnoreCase(originalUri.getScheme())) {
             URI httpFallback = properties.isVideoDownloadAllowHttpFallback()
                     ? trustedCosHttpFallback(originalUri)
                     : originalUri;
-            // Keep the URL returned by RunningHub (normally HTTPS) first.  A
-            // previous implementation forced the COS URL to HTTP before the
-            // first attempt; that endpoint often accepts HEAD but stalls on
-            // the response body, while the same HTTPS URL downloads normally
-            // in a browser.  Only try HTTP as a final compatibility fallback.
-            if (chromiumDownloader != null && chromiumDownloader.isAvailable()) {
-                if (!httpFallback.equals(originalUri)) {
-                    return List.of(
-                            new DownloadAttempt(originalUri, DownloadChannel.CHROMIUM),
-                            new DownloadAttempt(originalUri, DownloadChannel.BYTES),
-                            new DownloadAttempt(httpFallback, DownloadChannel.CHROMIUM),
-                            new DownloadAttempt(httpFallback, DownloadChannel.BYTES));
-                }
-                return List.of(
-                        new DownloadAttempt(originalUri, DownloadChannel.CHROMIUM),
-                        new DownloadAttempt(originalUri, DownloadChannel.BYTES));
-            }
-            if (!httpFallback.equals(originalUri)) {
-                return List.of(
-                        new DownloadAttempt(originalUri, DownloadChannel.BYTES),
-                        new DownloadAttempt(httpFallback, DownloadChannel.BYTES));
-            }
-            return List.of(new DownloadAttempt(originalUri, DownloadChannel.BYTES));
-        }
-        if (chromiumDownloader != null && chromiumDownloader.isAvailable()) {
-            return List.of(
-                    new DownloadAttempt(originalUri, DownloadChannel.CHROMIUM),
-                    new DownloadAttempt(originalUri, DownloadChannel.BYTES));
+            // Keep the URL returned by RunningHub first. Only use HTTP as a
+            // final compatibility fallback after all HTTPS channels fail.
+            return runningHubDownloadPlan(originalUri,
+                    httpFallback.equals(originalUri) ? null : httpFallback);
         }
         return List.of(new DownloadAttempt(originalUri, DownloadChannel.BYTES));
+    }
+
+    private List<DownloadAttempt> runningHubDownloadPlan(URI preferredUri, URI fallbackUri) {
+        List<DownloadAttempt> plan = new ArrayList<>();
+        boolean chromiumAvailable = chromiumDownloader != null && chromiumDownloader.isAvailable();
+        if (chromiumAvailable) {
+            plan.add(new DownloadAttempt(preferredUri, DownloadChannel.CHROMIUM));
+        }
+        plan.add(new DownloadAttempt(preferredUri, DownloadChannel.BYTES));
+        plan.add(new DownloadAttempt(preferredUri, DownloadChannel.POWERSHELL));
+        plan.add(new DownloadAttempt(preferredUri, DownloadChannel.CURL));
+        plan.add(new DownloadAttempt(preferredUri, DownloadChannel.JAVA));
+        if (fallbackUri != null && !fallbackUri.equals(preferredUri)) {
+            if (chromiumAvailable) {
+                plan.add(new DownloadAttempt(fallbackUri, DownloadChannel.CHROMIUM));
+            }
+            plan.add(new DownloadAttempt(fallbackUri, DownloadChannel.BYTES));
+        }
+        LOGGER.info("RunningHub 视频结果下载计划 url={} chromiumFirst={} channels={}",
+                preferredUri, chromiumAvailable, plan.stream().map(DownloadAttempt::channel).toList());
+        return List.copyOf(plan);
     }
 
     private static URI trustedCosHttpsUpgrade(URI originalUri) {
@@ -250,7 +237,8 @@ public class VideoMotionTransferService {
         }
         try {
             chromiumDownloader.download(uri, java.util.Map.of(
-                    "User-Agent", "Mozilla/5.0 FashionImageAgent/1.0",
+                    "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                            + "Chrome/131.0.0.0 Safari/537.36",
                     "Accept", "video/mp4,video/*,*/*;q=0.8",
                     "Accept-Encoding", "identity",
                     "Referer", "https://www.runninghub.cn/"), target);

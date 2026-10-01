@@ -3,7 +3,6 @@ package dev.learning.fashionagent.service;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -44,7 +43,7 @@ class ImageTransferServiceTest {
     }
 
     @Test
-    void shouldDownloadTrustedRunningHubCosHostDirectlyOverHttp() throws Exception {
+    void shouldKeepTrustedRunningHubCosHostOnOriginalHttpsUrl() throws Exception {
         RunningHubClient client = mock(RunningHubClient.class);
         RunningHubProperties properties = new RunningHubProperties();
         properties.setGeneratedDirectory(
@@ -52,15 +51,13 @@ class ImageTransferServiceTest {
         properties.setDownloadMaxAttempts(2);
         properties.setDownloadRetryDelay(Duration.ZERO);
         String httpsUrl = "https://rh-images-1252422369.cos.ap-beijing.myqcloud.com/output/person.png";
-        String httpUrl = "http://rh-images-1252422369.cos.ap-beijing.myqcloud.com/output/person.png";
         byte[] imageBytes = new byte[] {5, 6, 7, 8};
-        when(client.download(httpUrl)).thenReturn(imageBytes);
+        when(client.download(httpsUrl)).thenReturn(imageBytes);
         ImageTransferService service = new ImageTransferService(client, properties);
 
         Path localImage = service.downloadRemote(URI.create(httpsUrl), UUID.randomUUID(), "original");
 
         assertArrayEquals(imageBytes, Files.readAllBytes(localImage));
-        verify(client, never()).download(httpsUrl);
-        verify(client).download(httpUrl);
+        verify(client).download(httpsUrl);
     }
 }

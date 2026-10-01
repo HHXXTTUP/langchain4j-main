@@ -324,6 +324,7 @@ class JdbcJobHistoryRepository implements JobHistoryRepository {
                 source.clothingMatchPercentage(),
                 source.clothingMatchRule(),
                 source.finalImageUrl(),
+                source.generationUrl(),
                 source.portraitPrompt(),
                 source.portraitAttempts(),
                 source.finalPortraitQualityReport(),

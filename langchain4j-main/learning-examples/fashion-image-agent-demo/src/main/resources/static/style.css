@@ -463,10 +463,11 @@ figcaption { padding-top: 9px; color: var(--muted); font-size: 0.75rem; }
 .image-history-table td:nth-child(2), .video-history-table td:nth-child(1) { width: 150px; white-space: nowrap; }
 .image-history-table td:nth-child(3) { min-width: 200px; max-width: 320px; }
 .image-history-table td:nth-child(4), .image-history-table td:nth-child(5) { width: 116px; min-width: 116px; padding: 8px; text-align: center; vertical-align: middle; }
-.image-history-table td:nth-child(6), .image-history-table td:nth-child(7) { white-space: nowrap; }
-.image-history-table td:nth-child(8) { min-width: 140px; }
-.image-history-table td:nth-child(9) { min-width: 320px; max-width: 440px; }
-.image-history-table td:nth-child(10) { min-width: 280px; }
+.image-history-table td:nth-child(6) { min-width: 390px; max-width: 560px; }
+.image-history-table td:nth-child(7), .image-history-table td:nth-child(8) { white-space: nowrap; }
+.image-history-table td:nth-child(9) { min-width: 140px; }
+.image-history-table td:nth-child(10) { min-width: 320px; max-width: 440px; }
+.image-history-table td:nth-child(11) { min-width: 280px; }
 .video-history-table td:nth-child(2) { min-width: 220px; max-width: 320px; }
 .video-history-table td:nth-child(3) { min-width: 190px; overflow-wrap: anywhere; }
 .video-history-table td:nth-child(4), .video-history-table td:nth-child(7) { white-space: nowrap; }
@@ -478,7 +479,7 @@ figcaption { padding-top: 9px; color: var(--muted); font-size: 0.75rem; }
 .video-history-table td:nth-child(9) details summary { cursor: pointer; color: var(--accent); font-weight: 700; }
 .video-history-table td:nth-child(9) pre { max-width: 420px; max-height: 260px; margin: 8px 0 0; padding: 10px; overflow: auto; background: #1b1b1b; color: #f5f3ee; white-space: pre-wrap; word-break: break-word; }
 .video-history-table td:nth-child(10) { min-width: 210px; }
-.image-history-table td:nth-child(10) button,
+.image-history-table td:nth-child(11) button,
 .video-history-table td:nth-child(10) button { margin: 0 7px 7px 0; }
 
 /* Video history is a dashboard table: keep it inside the viewport and reveal long values with a tooltip. */
@@ -517,6 +518,21 @@ figcaption { padding-top: 9px; color: var(--muted); font-size: 0.75rem; }
 .video-history-table th:nth-child(9), .video-history-table td:nth-child(9) { width: 10%; }
 .video-history-table th:nth-child(10), .video-history-table td:nth-child(10) { width: 10%; }
 .video-history-table th:nth-child(11), .video-history-table td:nth-child(11) { width: 10%; }
+.video-history-table th:nth-child(6), .video-history-table td:nth-child(6) { width: 7%; }
+.video-history-table th:nth-child(7), .video-history-table td:nth-child(7),
+.video-history-table th:nth-child(9), .video-history-table td:nth-child(9) { width: 15%; }
+.video-history-table th:nth-child(8), .video-history-table td:nth-child(8) { width: 7%; }
+.video-history-table th:nth-child(10), .video-history-table td:nth-child(10) { width: 8%; }
+.video-history-table th:nth-child(11), .video-history-table td:nth-child(11) { width: 9%; }
+.video-history-table th:nth-child(12), .video-history-table td:nth-child(12) { width: 11%; }
+.video-history-table th:nth-child(13), .video-history-table td:nth-child(13) { width: 10%; }
+.video-history-table td:nth-child(7), .video-history-table td:nth-child(9) {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+.video-history-table td:nth-child(12) { white-space: normal; }
+.video-history-table td:nth-child(13) { white-space: normal; }
+.video-history-table td:nth-child(13) button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .history-table button:disabled { cursor: wait; opacity: 0.5; }
 .table-score { display: inline-block; min-width: 66px; padding: 5px 7px; border: 1px solid currentColor; text-align: center; font-weight: 700; }
 .table-score.is-high { color: #287554; background: #edf8f2; }
@@ -538,6 +554,16 @@ figcaption { padding-top: 9px; color: var(--muted); font-size: 0.75rem; }
 }
 .history-table .history-image-button img { width: 100%; height: 100%; object-fit: cover; }
 .history-image-placeholder { color: var(--muted); font-size: 0.7rem; }
+.generation-link-cell { vertical-align: middle !important; }
+.generation-link {
+    display: block;
+    max-width: 540px;
+    overflow-wrap: anywhere;
+    color: var(--accent);
+    text-decoration: underline;
+    line-height: 1.35;
+}
+.link-copy-button { margin-top: 8px; padding: 5px 9px; font-size: 0.72rem; }
 .image-preview-modal {
     position: fixed;
     z-index: 1000;

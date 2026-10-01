@@ -118,7 +118,6 @@ public class ChromiumSegmentedMediaDownloader {
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--disable-background-networking",
-                "--no-proxy-server",
                 "--disable-component-update",
                 "--disable-sync",
                 "--disable-web-security",

@@ -79,7 +79,7 @@ runninghub:
   video-task-timeout: ${RUNNINGHUB_VIDEO_TASK_TIMEOUT:45m}
   video-max-upload-bytes: ${RUNNINGHUB_VIDEO_MAX_UPLOAD_BYTES:209715200}
   video-max-download-bytes: ${RUNNINGHUB_VIDEO_MAX_DOWNLOAD_BYTES:524288000}
-  video-download-max-attempts: ${RUNNINGHUB_VIDEO_DOWNLOAD_MAX_ATTEMPTS:3}
+  video-download-max-attempts: ${RUNNINGHUB_VIDEO_DOWNLOAD_MAX_ATTEMPTS:5}
   video-download-retry-delay: ${RUNNINGHUB_VIDEO_DOWNLOAD_RETRY_DELAY:5s}
   video-download-allow-http-fallback: ${RUNNINGHUB_VIDEO_DOWNLOAD_ALLOW_HTTP_FALLBACK:true}
   ffmpeg-path: ${FFMPEG_PATH:tools/ffmpeg/ffmpeg.exe}

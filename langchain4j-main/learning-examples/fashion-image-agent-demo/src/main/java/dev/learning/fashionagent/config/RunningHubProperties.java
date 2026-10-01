@@ -46,7 +46,7 @@ public class RunningHubProperties {
     private Duration videoTaskTimeout = Duration.ofMinutes(45);
     private long videoMaxUploadBytes = 200L * 1024 * 1024;
     private long videoMaxDownloadBytes = 500L * 1024 * 1024;
-    private int videoDownloadMaxAttempts = 3;
+    private int videoDownloadMaxAttempts = 5;
     private Duration videoDownloadRetryDelay = Duration.ofSeconds(5);
     private boolean videoDownloadAllowHttpFallback = true;
     private String ffmpegPath = "ffmpeg";

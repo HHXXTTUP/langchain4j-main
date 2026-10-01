@@ -1598,16 +1598,44 @@ def resolve_stock_sector(full_code, refresh=False):
 def metric_window(frame, minutes):
     if frame.empty:
         return None, None
-    latest = number(frame.iloc[-1]["close"])
-    reference_index = max(0, len(frame) - minutes - 1)
-    reference = number(frame.iloc[reference_index]["close"])
+    closes = pd.to_numeric(frame["close"], errors="coerce")
+    opens = pd.to_numeric(frame["open"], errors="coerce")
+    latest = number(closes.iloc[-1])
+    if latest is None or latest <= 0:
+        return None, None
+    reference_index = len(frame) - minutes - 1
+    reference = number(closes.iloc[reference_index]) if reference_index >= 0 else None
+    if reference is None or reference <= 0:
+        valid_opens = opens[opens > 0]
+        valid_closes = closes[closes > 0]
+        reference = number(valid_opens.iloc[0]) if not valid_opens.empty else (
+            number(valid_closes.iloc[0]) if not valid_closes.empty else None)
+    if reference is None or reference <= 0:
+        return None, None
     window = frame.tail(minutes)
-    first_price = number(window.iloc[0]["open"])
+    first_price = number(pd.to_numeric(window["open"], errors="coerce").iloc[0])
+    if first_price is None or first_price <= 0:
+        first_price = reference
     high = pd.to_numeric(window["high"], errors="coerce").max()
     low = pd.to_numeric(window["low"], errors="coerce").min()
-    momentum = (latest - reference) / reference * 100 if latest is not None and reference else None
-    amplitude = (high - low) / first_price * 100 if first_price and pd.notna(high) and pd.notna(low) else None
+    momentum = (latest - reference) / reference * 100
+    amplitude = (high - low) / first_price * 100 if pd.notna(high) and pd.notna(low) else None
     return momentum, amplitude
+
+
+def parse_quote_datetime(value):
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    parsed = pd.to_datetime(raw, errors="coerce")
+    if not pd.isna(parsed):
+        return parsed
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) >= 14:
+        parsed = pd.to_datetime(digits[:14], format="%Y%m%d%H%M%S", errors="coerce")
+    return parsed if not pd.isna(parsed) else None
 
 
 def merge_realtime_quote_into_minutes(frame, realtime_price=None, realtime_time=None):
@@ -1615,9 +1643,8 @@ def merge_realtime_quote_into_minutes(frame, realtime_price=None, realtime_time=
     price = number(realtime_price)
     if price is None or price <= 0 or frame.empty:
         return frame, None
-    quote_at = pd.to_datetime(
-        str(realtime_time or ""), format="%Y%m%d%H%M%S", errors="coerce")
-    if pd.isna(quote_at):
+    quote_at = parse_quote_datetime(realtime_time)
+    if quote_at is None:
         return frame, None
     latest_at = frame.iloc[-1]["day"]
     if quote_at.date() != latest_at.date() or quote_at < latest_at - dt.timedelta(minutes=5):
@@ -1645,9 +1672,16 @@ def merge_realtime_quote_into_minutes(frame, realtime_price=None, realtime_time=
 
 def load_tencent_minute_frame(full_code):
     response = requests.get(
-        "http://web.ifzq.gtimg.cn/appstock/app/minute/query",
+        # The legacy web.ifzq.gtimg.cn host now returns an anti-bot 501 page.
+        # ifzq.gtimg.cn exposes the same JSON contract and remains usable by
+        # the quote service, so keep the minute source on that canonical host.
+        "https://ifzq.gtimg.cn/appstock/app/minute/query",
         params={"code": full_code},
-        headers={"Referer": "https://gu.qq.com/"},
+        headers={
+            "Referer": "https://gu.qq.com/",
+            "User-Agent": "Mozilla/5.0",
+        },
+        timeout=REQUEST_TIMEOUT,
     )
     response.raise_for_status()
     payload = response.json()
@@ -1967,6 +2001,25 @@ def component_score(value, scale):
     return 50 if value is None else clamp(50 + value * scale)
 
 
+def is_call_auction_window(now=None):
+    """Return whether A-share call auction quotes should drive the ranking.
+
+    During 09:15-09:25 there is no reliable intraday minute baseline yet, so
+    using the normal 1/3/5-minute formula makes every stock fall back to the
+    same neutral score.  Tencent's current price/change fields are already
+    updated with the indicative auction price and are the appropriate signal
+    for this short window.
+    """
+    current = now or dt.datetime.now(SHANGHAI_ZONE)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=SHANGHAI_ZONE)
+    local = current.astimezone(SHANGHAI_ZONE)
+    if local.weekday() >= 5:
+        return False
+    seconds = local.hour * 3600 + local.minute * 60 + local.second
+    return 9 * 3600 + 15 * 60 <= seconds <= 9 * 3600 + 25 * 60
+
+
 def limit_up_strength_score(limit_quality_score, breakout_count):
     """Score a sealed limit-up without relying on unavailable minute returns."""
     quality = clamp(limit_quality_score if limit_quality_score is not None else 50)
@@ -2003,6 +2056,11 @@ def build_ranking_reason(item, rank, daily_leader_change):
             f"炸板{breakout_count}次" if breakout_count is not None else "炸板次数未知"))
         if item.get("sealAmount") is not None:
             reasons.append(f"封单{brief_rank_amount(item['sealAmount'])}")
+    elif is_call_auction_window():
+        change = item.get("dailyChangePercent")
+        reasons.append("集合竞价涨幅" + brief_rank_percent(change))
+        if item.get("currentPrice") is not None:
+            reasons.append(f"竞价价{item['currentPrice']:.2f}")
     else:
         returns = [item.get("return1m"), item.get("return3m"), item.get("return5m")]
         if any(value is not None for value in returns):
@@ -2290,19 +2348,46 @@ def load_sector_detail(sector_identifier, selected_code=None, refresh=False):
     executor.shutdown(wait=False, cancel_futures=True)
     available_returns = [item["return5m"] for item in stocks if item.get("return5m") is not None]
     sector_return = sum(available_returns) / len(available_returns) if available_returns else 0
+    auction_mode = is_call_auction_window()
+    auction_changes = [item.get("dailyChangePercent") for item in stocks
+                       if item.get("dailyChangePercent") is not None]
+    auction_change_ranks = {}
+    if auction_mode and auction_changes:
+        # Percentile keeps close auction quotes distinguishable even when the
+        # displayed percentage only changes by a few hundredths.
+        ordered_changes = sorted(auction_changes)
+        for item in stocks:
+            change = item.get("dailyChangePercent")
+            if change is None:
+                continue
+            auction_change_ranks[id(item)] = (
+                ordered_changes.index(change) / max(1, len(ordered_changes) - 1) * 100
+            )
     for item in stocks:
         item["relativeStrength"] = (
             item["return5m"] - sector_return if item.get("return5m") is not None else None
         )
-        score = (
-            component_score(item.get("return5m"), 8) * 0.25
-            + component_score(item.get("return3m"), 10) * 0.20
-            + component_score(item.get("return1m"), 14) * 0.10
-            + component_score(item.get("relativeStrength"), 10) * 0.15
-            + component_score((item.get("volumeRatio") - 1) if item.get("volumeRatio") is not None else None, 35) * 0.15
-            + component_score(item.get("mainNetRatio"), 3) * 0.15
-        )
-        if item.get("limitUp"):
+        if auction_mode:
+            # In call auction, dailyChangePercent is the live indicative
+            # auction move. It must dominate the score while the percentile
+            # makes the ordering stable and responsive for near-equal moves.
+            change_score = component_score(item.get("dailyChangePercent"), 8)
+            percentile_score = auction_change_ranks.get(id(item), 50)
+            score = change_score * 0.85 + percentile_score * 0.15
+            if item.get("limitUp"):
+                limit_quality = item.get("limitQualityScore") or 50
+                score = score * 0.35 + limit_up_strength_score(
+                    limit_quality, item.get("breakoutCount")) * 0.65
+        else:
+            score = (
+                component_score(item.get("return5m"), 8) * 0.25
+                + component_score(item.get("return3m"), 10) * 0.20
+                + component_score(item.get("return1m"), 14) * 0.10
+                + component_score(item.get("relativeStrength"), 10) * 0.15
+                + component_score((item.get("volumeRatio") - 1) if item.get("volumeRatio") is not None else None, 35) * 0.15
+                + component_score(item.get("mainNetRatio"), 3) * 0.15
+            )
+        if item.get("limitUp") and not auction_mode:
             limit_quality = item.get("limitQualityScore") or 50
             # 涨停时分数据通常为空或为 0，封板质量应成为主要评分依据。
             score = limit_up_strength_score(limit_quality, item.get("breakoutCount"))
@@ -2325,7 +2410,11 @@ def load_sector_detail(sector_identifier, selected_code=None, refresh=False):
             if item.get("sealRatio") is not None and item["sealRatio"] >= 0.05:
                 signals.append("封单较强")
         item["signals"] = signals
-    stocks.sort(key=lambda item: item["score"], reverse=True)
+    stocks.sort(key=lambda item: (
+        item["score"],
+        item.get("dailyChangePercent") if auction_mode else item.get("return5m") or 0,
+        item.get("currentPrice") or 0,
+    ), reverse=True)
     daily_changes = [item.get("dailyChangePercent") for item in stocks
                      if item.get("dailyChangePercent") is not None]
     daily_leader_change = max(daily_changes) if daily_changes else None
@@ -2345,24 +2434,41 @@ def load_sector_detail(sector_identifier, selected_code=None, refresh=False):
     missing_reports = sum(item.get("latestReport") is None for item in stocks)
     if missing_minutes:
         warnings.append(f"{missing_minutes} 只候选股缺少分钟行情")
+    # During 09:15-09:25 the minute series is expected to be empty. The
+    # auction score is still a valid ranking source and must be persisted.
+    ranking_available = bool(stocks) and (auction_mode or missing_minutes < len(stocks))
+    if stocks and not ranking_available:
+        warnings.insert(0, "分钟行情全部不可用，本次未生成排名，也不会写入排名日志")
+    elif auction_mode and missing_minutes:
+        warnings.insert(0, "集合竞价阶段按竞价涨幅排名，连续竞价开始后提供1/3/5分钟指标")
     if missing_flow:
         warnings.append(f"{missing_flow} 只候选股今日实时资金流暂不可用")
     if missing_performance:
         warnings.append(f"{missing_performance} 只候选股近两年季度业绩暂不可用")
     if missing_reports:
         warnings.append(f"{missing_reports} 只候选股近期研报评级暂不可用")
+    formula = (
+        "当前为集合竞价阶段：按实时竞价涨跌幅85%+板块内竞价涨幅百分位15%排名；"
+        "分钟线将在连续竞价开始后参与评分。"
+        if auction_mode else
+        "Top10先按板块成分相关性、成交额、市值、动态PE盈利状态、日内涨幅和换手率筛选；"
+        "普通股分时强度分=5分钟动量25%+3分钟动量20%+1分钟动量10%+板块相对强度15%"
+        "+5分钟量比15%+今日实时主力净流入占比15%；涨停股改用基础分55%+封板质量45%，零炸板额外加分。"
+    )
     payload = {
-        "available": bool(stocks),
+        "available": ranking_available,
         "sector": sector,
         "selectedCode": selected_code,
         "stocks": stocks,
-        "formula": "Top10先按板块成分相关性、成交额、市值、动态PE盈利状态、日内涨幅和换手率筛选；普通股分时强度分=5分钟动量25%+3分钟动量20%+1分钟动量10%+板块相对强度15%+5分钟量比15%+今日实时主力净流入占比15%；涨停股改用基础分55%+封板质量45%，零炸板额外加分。",
+        "formula": formula,
         "source": f"{sector.get('classificationSource', 'AKShare / 新浪')}板块成分、分钟行情与今日实时资金流；同花顺季度业绩，研报数据按当前可用接口返回",
         "warnings": warnings,
         "fetchedAt": dt.datetime.now().isoformat(timespec="seconds"),
     }
-    SECTOR_DETAIL_LAST_GOOD[cache_key] = payload
-    return cache_put(cache_key, payload)
+    if ranking_available:
+        SECTOR_DETAIL_LAST_GOOD[cache_key] = payload
+        return cache_put(cache_key, payload)
+    return payload
 
 
 def load_stock_sector_detail(full_code, refresh=False):

@@ -598,7 +598,7 @@ public class VideoGenerationService {
         }
 
         synchronized boolean downloadRetryable() {
-            return downloadRetryable
+            return (downloadRetryable || status == VideoGenerationStatus.FAILED)
                     && firstSegmentRemoteUrl != null && !firstSegmentRemoteUrl.isBlank()
                     && secondSegmentRemoteUrl != null && !secondSegmentRemoteUrl.isBlank();
         }

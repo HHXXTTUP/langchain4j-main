@@ -48,6 +48,7 @@ public class Agent3OutfitStylist {
                 status -> observer.stage(
                         PipelineStage.AGENT3_REPLACING_OUTFIT,
                         "第 " + attemptNumber + " 次换装：" + statusMessage(status)));
+        observer.generatedAssetUrl(remoteImage.toString());
         observer.stage(PipelineStage.AGENT3_REPLACING_OUTFIT, "第 " + attemptNumber + " 次换装完成，正在下载结果");
         return imageTransferService.downloadRemote(remoteImage, jobId, "outfit-attempt-" + attemptNumber);
     }

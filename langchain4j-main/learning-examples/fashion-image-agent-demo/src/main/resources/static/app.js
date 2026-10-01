@@ -814,7 +814,7 @@ function renderHistoryTable(jobs) {
     if (jobs.length === 0) {
         const row = document.createElement("tr");
         const cell = document.createElement("td");
-        cell.colSpan = 10;
+        cell.colSpan = 11;
         cell.className = "history-empty";
         cell.textContent = "暂无历史记录。新任务会自动写入本地数据库。";
         row.append(cell);
@@ -831,7 +831,7 @@ function upsertHistoryRow(job, prepend) {
     if (!row) {
         row = document.createElement("tr");
         row.dataset.historyJobId = job.id;
-        row.innerHTML = "<td class=\"selection-column\"></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>";
+        row.innerHTML = "<td class=\"selection-column\"></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>";
         if (prepend && historyBody.firstChild) {
             historyBody.prepend(row);
         } else {
@@ -866,13 +866,14 @@ function upsertHistoryRow(job, prepend) {
     renderPromptWithMode(cells[2], job);
     renderHistoryImage(cells[3], job.originalImageUrl, "人物生成原图", job.updatedAt);
     renderHistoryImage(cells[4], job.finalImageUrl, "智能换装结果", job.updatedAt);
-    cells[5].textContent = displayStatus(job);
-    cells[5].dataset.status = job.status;
-    renderQualityScore(cells[6], job.finalPortraitQualityReport?.overallScore, "人物");
-    cells[7].textContent = stageLabel(job.stage);
-    cells[8].textContent = job.reply || job.error || job.message || "等待结果";
+    renderGenerationLink(cells[5], job.generationUrl);
+    cells[6].textContent = displayStatus(job);
+    cells[6].dataset.status = job.status;
+    renderQualityScore(cells[7], job.finalPortraitQualityReport?.overallScore, "人物");
+    cells[8].textContent = stageLabel(job.stage);
+    cells[9].textContent = job.reply || job.error || job.message || "等待结果";
 
-    const actions = cells[9];
+    const actions = cells[10];
     actions.replaceChildren();
     const stepsButton = document.createElement("button");
     stepsButton.type = "button";
@@ -946,6 +947,39 @@ function renderHistoryImage(cell, url, alt, updatedAt) {
     cell.append(button);
 }
 
+function renderGenerationLink(cell, url) {
+    cell.replaceChildren();
+    cell.className = "generation-link-cell";
+    if (!url) {
+        cell.textContent = "等待生成";
+        return;
+    }
+    const link = document.createElement("a");
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.className = "generation-link";
+    link.title = url;
+    link.textContent = url;
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "link-copy-button";
+    copyButton.textContent = "复制";
+    copyButton.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        try {
+            await navigator.clipboard.writeText(url);
+            copyButton.textContent = "已复制";
+            setTimeout(() => copyButton.textContent = "复制", 1400);
+        } catch (error) {
+            copyButton.textContent = "复制失败";
+            setTimeout(() => copyButton.textContent = "复制", 1400);
+        }
+    });
+    cell.append(link, copyButton);
+}
+
 function eligibleVideoSourceIds() {
     return currentImageJobs
         .filter((job) => {
@@ -982,7 +1016,7 @@ function renderVideoHistoryTable(videoJobs) {
     if (videoJobs.length === 0) {
         const row = document.createElement("tr");
         const cell = document.createElement("td");
-        cell.colSpan = 11;
+        cell.colSpan = 13;
         cell.className = "history-empty";
         cell.textContent = "暂无视频生成记录。请先在图片生成列表中点击“生成视频”。";
         row.append(cell);
@@ -993,7 +1027,7 @@ function renderVideoHistoryTable(videoJobs) {
         const sourceJob = jobsById.get(videoJob.sourceJobId);
         const row = document.createElement("tr");
         row.dataset.videoJobId = videoJob.id;
-        row.innerHTML = "<td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>";
+        row.innerHTML = "<td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>";
         const cells = row.querySelectorAll("td");
         const retryCheckbox = document.createElement("input");
         retryCheckbox.type = "checkbox";
@@ -1014,14 +1048,18 @@ function renderVideoHistoryTable(videoJobs) {
         cells[4].textContent = videoStatusLabel(videoJob.status);
         cells[4].dataset.status = videoJob.status;
         cells[5].textContent = videoJob.firstSegmentStatus || "等待";
-        cells[6].textContent = videoJob.secondSegmentStatus || "等待";
-        renderQualityScore(cells[7], videoJob.qualityReport?.overallScore, "视频");
+        cells[6].title = videoJob.firstSegmentRemoteUrl || "等待生成地址";
+        renderGenerationLink(cells[6], videoJob.firstSegmentRemoteUrl);
+        cells[7].textContent = videoJob.secondSegmentStatus || "等待";
+        cells[8].title = videoJob.secondSegmentRemoteUrl || "等待生成地址";
+        renderGenerationLink(cells[8], videoJob.secondSegmentRemoteUrl);
+        renderQualityScore(cells[9], videoJob.qualityReport?.overallScore, "视频");
         cells[5].title = cells[5].textContent;
-        cells[6].title = cells[6].textContent;
-        renderHistoryVideo(cells[8], videoJob);
-        renderVideoExecutionResult(cells[9], videoJob);
+        cells[7].title = cells[7].textContent;
+        renderHistoryVideo(cells[10], videoJob);
+        renderVideoExecutionResult(cells[11], videoJob);
 
-        const actions = cells[10];
+        const actions = cells[12];
         if (sourceJob) {
             const sourceButton = document.createElement("button");
             sourceButton.type = "button";
@@ -1039,10 +1077,12 @@ function renderVideoHistoryTable(videoJobs) {
             folderButton.addEventListener("click", () => openVideoFolder(videoJob.id));
             actions.append(folderButton);
         }
-        if (videoJob.status === "FAILED" && videoJob.downloadRetryable) {
+        const canRetryDownload = videoJob.status === "FAILED"
+            && Boolean(videoJob.firstSegmentRemoteUrl && videoJob.secondSegmentRemoteUrl);
+        if (canRetryDownload) {
             const retryButton = document.createElement("button");
             retryButton.type = "button";
-            retryButton.textContent = "重新下载";
+            retryButton.textContent = "重新下载图片1/2";
             retryButton.addEventListener("click", () => retryVideoDownload(videoJob.id, retryButton));
             actions.append(retryButton);
         }

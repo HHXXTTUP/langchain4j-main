@@ -320,6 +320,13 @@ public class GenerationJobService {
             }
 
             @Override
+            public void generatedAssetUrl(String url) {
+                job.generatedAssetUrl(url);
+                persist(job);
+                recordEvent(job, "GENERATED_ASSET_URL", "RunningHub 生成链接已记录", Map.of("url", url));
+            }
+
+            @Override
             public void originalImage(Path imagePath) {
                 job.checkCancellation();
                 job.originalImage(imagePath);
@@ -495,6 +502,7 @@ public class GenerationJobService {
         private Double clothingMatchPercentage;
         private String clothingMatchRule;
         private Path finalImage;
+        private String generationUrl;
         private PortraitPromptSpec portraitPrompt;
         private final List<PortraitAttempt> portraitAttempts = new ArrayList<>();
         private PortraitQualityReport finalPortraitQualityReport;
@@ -583,6 +591,13 @@ public class GenerationJobService {
         synchronized void finalImage(Path imagePath) {
             this.finalImage = imagePath;
             this.updatedAt = Instant.now();
+        }
+
+        synchronized void generatedAssetUrl(String url) {
+            if (url != null && !url.isBlank()) {
+                this.generationUrl = url.trim();
+                this.updatedAt = Instant.now();
+            }
         }
 
         synchronized void fashionAnalysis(FashionReferenceSpec analysis) {
@@ -722,6 +737,7 @@ public class GenerationJobService {
                     clothingMatchPercentage,
                     clothingMatchRule,
                     finalUrl,
+                    generationUrl,
                     portraitPrompt,
                     portraitAttemptViews,
                     finalPortraitQualityReport,

@@ -1077,7 +1077,9 @@ async function requestSectorDetail(path, stockLookup, options = {}) {
     syncTop10RefreshControls();
     try {
         const response = await api(path);
-        if (response.available === false) throw new Error(response.message || '板块强度数据暂不可用，请稍后重试');
+        if (response.available === false) {
+            throw new Error(response.message || response.warnings?.[0] || '板块强度数据暂不可用，请稍后重试');
+        }
         acceptTop10SectorResponse(response, {
             selectedCode: response.selectedCode || state.currentSectorSelectedCode,
             requestedSectorId: options.requestedSectorId,
@@ -1599,7 +1601,7 @@ async function refreshSelectedTop10Sectors(options = {}) {
                     `/api/sectors/${encodeURIComponent(selection.id)}?refresh=true${selectedQuery}`
                 );
                 if (response.available === false) {
-                    throw new Error(response.message || '板块强度数据暂不可用');
+                    throw new Error(response.message || response.warnings?.[0] || '板块强度数据暂不可用');
                 }
                 acceptTop10SectorResponse(response, {
                     selectedCode: selection.selectedCode,

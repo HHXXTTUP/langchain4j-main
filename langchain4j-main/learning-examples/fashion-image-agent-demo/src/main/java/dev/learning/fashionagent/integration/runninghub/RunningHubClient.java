@@ -13,6 +13,7 @@ import java.net.Proxy;
 import java.net.URI;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -508,6 +509,10 @@ public class RunningHubClient {
 
     /** Uses Windows' browser-compatible HTTP stack when COS resets JVM and curl TLS connections. */
     public Path downloadToFileViaPowerShell(URI uri, Path target, long maxDownloadBytes) {
+        return downloadToFileViaPowerShell(uri, target, maxDownloadBytes, false);
+    }
+
+    public Path downloadToFileViaPowerShell(URI uri, Path target, long maxDownloadBytes, boolean direct) {
         Path normalizedTarget = target.toAbsolutePath().normalize();
         Path temporary = normalizedTarget.resolveSibling(normalizedTarget.getFileName() + ".powershell.part");
         Path logFile = normalizedTarget.resolveSibling(normalizedTarget.getFileName() + ".powershell.log");
@@ -525,7 +530,7 @@ public class RunningHubClient {
                     + "Invoke-WebRequest -UseBasicParsing -Uri " + powerShellQuote(uri.toASCIIString())
                     + " -OutFile " + powerShellQuote(temporary.toString())
                     + " -TimeoutSec " + timeoutSeconds
-                    + (properties.isDownloadProxyConfigured()
+                    + (!direct && properties.isDownloadProxyConfigured()
                             ? " -Proxy " + powerShellQuote("http://" + properties.getDownloadProxyHost().trim()
                                     + ":" + properties.getDownloadProxyPort())
                             : "");
@@ -547,7 +552,7 @@ public class RunningHubClient {
                 throw new RunningHubException("生成文件 PowerShell 下载超时：" + uri);
             }
             String output = Files.exists(logFile)
-                    ? diagnostic(Files.readString(logFile, StandardCharsets.ISO_8859_1))
+                    ? diagnostic(readProcessLog(logFile, StandardCharsets.ISO_8859_1))
                     : "";
             if (process.exitValue() != 0) {
                 throw new RunningHubException("生成文件 PowerShell 下载失败，exitCode="
@@ -584,6 +589,10 @@ public class RunningHubClient {
      * is deliberately kept as a separate outer retry channel.
      */
     public Path downloadToFileViaCurl(URI uri, Path target, long maxDownloadBytes) {
+        return downloadToFileViaCurl(uri, target, maxDownloadBytes, false);
+    }
+
+    public Path downloadToFileViaCurl(URI uri, Path target, long maxDownloadBytes, boolean direct) {
         Path normalizedTarget = target.toAbsolutePath().normalize();
         Path temporary = normalizedTarget.resolveSibling(normalizedTarget.getFileName() + ".curl.part");
         Path logFile = normalizedTarget.resolveSibling(normalizedTarget.getFileName() + ".curl.log");
@@ -601,9 +610,9 @@ public class RunningHubClient {
                     "--max-time", Long.toString(timeoutSeconds),
                     "--user-agent", "Mozilla/5.0 FashionImageAgent/1.0",
                     "--output", temporary.toString(), uri.toASCIIString());
-            List<String> effectiveCommand = properties.isDownloadProxyConfigured()
+            List<String> effectiveCommand = !direct && properties.isDownloadProxyConfigured()
                     ? withCurlProxy(command)
-                    : command;
+                    : withCurlNoProxy(command);
             LOGGER.info("生成文件 curl 下载开始 url={} target={}", uri, normalizedTarget);
             Process process = new ProcessBuilder(effectiveCommand)
                     .redirectErrorStream(true)
@@ -614,7 +623,7 @@ public class RunningHubClient {
                 throw new RunningHubException("生成文件 curl 下载超时：" + uri);
             }
             String output = Files.exists(logFile)
-                    ? diagnostic(Files.readString(logFile, StandardCharsets.UTF_8))
+                    ? diagnostic(readProcessLog(logFile, StandardCharsets.UTF_8))
                     : "";
             if (process.exitValue() != 0) {
                 throw new RunningHubException("生成文件 curl 下载失败，exitCode="
@@ -641,6 +650,77 @@ public class RunningHubClient {
         }
     }
 
+    /** Uses Windows BITS, matching the stable SnapAny download channel. */
+    public Path downloadToFileViaBits(URI uri, Path target, long maxDownloadBytes) {
+        Path normalizedTarget = target.toAbsolutePath().normalize();
+        Path temporary = normalizedTarget.resolveSibling(normalizedTarget.getFileName() + ".bits.part");
+        Path logFile = normalizedTarget.resolveSibling(normalizedTarget.getFileName() + ".bits.log");
+        long timeoutSeconds = Math.max(180L,
+                properties.getDownloadConnectTimeout().plus(properties.getDownloadReadTimeout()).toSeconds());
+        try {
+            Path parent = normalizedTarget.getParent();
+            if (parent != null) Files.createDirectories(parent);
+            Files.deleteIfExists(temporary);
+            Files.deleteIfExists(logFile);
+            String source = powerShellQuote(uri.toASCIIString());
+            String destination = powerShellQuote(temporary.toString());
+            String script = "$ErrorActionPreference='Stop';"
+                    + "$arguments=@{Source=" + source + ";Destination=" + destination + ";"
+                    + "Asynchronous=$true;DisplayName='FashionImageAgent RunningHub';Priority='Foreground';"
+                    + "ProxyUsage='NoProxy';RetryInterval=60;RetryTimeout=60;MaxDownloadTime=" + timeoutSeconds + "};"
+                    + "$job=Start-BitsTransfer @arguments;"
+                    + "$deadline=[DateTime]::UtcNow.AddSeconds(" + timeoutSeconds + ");"
+                    + "while($job.JobState -in @('Connecting','Transferring','Queued','TransientError') "
+                    + "-and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Seconds 1;"
+                    + "$job=Get-BitsTransfer -JobId $job.JobId};"
+                    + "if($job.JobState -ne 'Transferred'){"
+                    + "$state=$job.JobState;$errorText=if($job.ErrorDescription){$job.ErrorDescription}else{'unknown'};"
+                    + "Remove-BitsTransfer -BitsJob $job -Confirm:$false -ErrorAction SilentlyContinue;"
+                    + "throw ('BITS state=' + $state + ' error=' + $errorText)};"
+                    + "Complete-BitsTransfer -BitsJob $job;"
+                    + "if(!(Test-Path -LiteralPath " + destination + ")){throw 'BITS output file missing'};"
+                    + "Write-Output ('BITS completed bytes=' + (Get-Item -LiteralPath " + destination + ").Length)";
+            String encodedScript = Base64.getEncoder().encodeToString(
+                    script.getBytes(StandardCharsets.UTF_16LE));
+            LOGGER.info("生成文件 BITS 直连下载开始 url={} target={} proxy=none", uri, normalizedTarget);
+            Process process = new ProcessBuilder(
+                    "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                    "-EncodedCommand", encodedScript)
+                    .redirectErrorStream(true)
+                    .redirectOutput(logFile.toFile())
+                    .start();
+            if (!process.waitFor(timeoutSeconds + 15L, java.util.concurrent.TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                throw new RunningHubException("生成文件 BITS 下载超时：" + uri);
+            }
+            String output = Files.exists(logFile)
+                    ? diagnostic(readProcessLog(logFile, StandardCharsets.UTF_8))
+                    : "";
+            if (process.exitValue() != 0) {
+                throw new RunningHubException("生成文件 BITS 下载失败，exitCode="
+                        + process.exitValue() + (output.isBlank() ? "" : "，output=" + output));
+            }
+            long size = Files.exists(temporary) ? Files.size(temporary) : 0;
+            if (size <= 0 || size > maxDownloadBytes) {
+                throw new RunningHubException("生成文件 BITS 下载大小异常：" + size + " bytes");
+            }
+            Files.move(temporary, normalizedTarget, StandardCopyOption.REPLACE_EXISTING);
+            Files.deleteIfExists(logFile);
+            LOGGER.info("生成文件 BITS 直连下载成功 url={} target={} size={} bytes", uri, normalizedTarget, size);
+            return normalizedTarget;
+        } catch (IOException exception) {
+            deletePartialFile(temporary);
+            throw new RunningHubException("生成文件 BITS 下载失败：" + uri, exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            deletePartialFile(temporary);
+            throw new RunningHubException("生成文件 BITS 下载被中断：" + uri, exception);
+        } catch (RuntimeException exception) {
+            deletePartialFile(temporary);
+            throw exception;
+        }
+    }
+
     private static String diagnostic(String value) {
         if (value == null) return "";
         String normalized = value.replace('\r', ' ').replace('\n', ' ').trim();
@@ -648,11 +728,29 @@ public class RunningHubClient {
         return normalized.substring(0, 800) + "…";
     }
 
+    private static String readProcessLog(Path logFile, Charset preferred) throws IOException {
+        byte[] bytes = Files.readAllBytes(logFile);
+        if (bytes.length == 0) return "";
+        Charset charset = preferred;
+        if (bytes.length >= 2 && bytes[0] == (byte) 0xFF && bytes[1] == (byte) 0xFE) charset = StandardCharsets.UTF_16LE;
+        else if (bytes.length >= 2 && bytes[0] == (byte) 0xFE && bytes[1] == (byte) 0xFF) charset = StandardCharsets.UTF_16BE;
+        return new String(bytes, charset);
+    }
+
     private List<String> withCurlProxy(List<String> command) {
         java.util.ArrayList<String> result = new java.util.ArrayList<>(command.size() + 2);
         result.add("curl.exe");
         result.add("--proxy");
         result.add(properties.getDownloadProxyHost().trim() + ":" + properties.getDownloadProxyPort());
+        result.addAll(command.subList(1, command.size()));
+        return result;
+    }
+
+    private static List<String> withCurlNoProxy(List<String> command) {
+        java.util.ArrayList<String> result = new java.util.ArrayList<>(command.size() + 2);
+        result.add("curl.exe");
+        result.add("--noproxy");
+        result.add("*");
         result.addAll(command.subList(1, command.size()));
         return result;
     }

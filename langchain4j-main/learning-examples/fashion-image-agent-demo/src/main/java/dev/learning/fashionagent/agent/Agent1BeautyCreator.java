@@ -66,6 +66,7 @@ public class Agent1BeautyCreator {
         URI imageUrl = mode == null
                 ? imageGenerationService.generate(prompt, progress)
                 : imageGenerationService.generate(prompt, normalizedMode, progress);
+        observer.generatedAssetUrl(imageUrl.toString());
         observer.stage(
                 PipelineStage.AGENT1_GENERATING_PERSON,
                 "第 " + attemptNumber + " 张人物底图已生成，正在下载到本地");

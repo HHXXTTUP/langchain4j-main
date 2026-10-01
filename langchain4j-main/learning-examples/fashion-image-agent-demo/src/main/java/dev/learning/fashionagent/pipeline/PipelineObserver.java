@@ -10,6 +10,8 @@ public interface PipelineObserver {
 
     void stage(PipelineStage stage, String message);
 
+    default void generatedAssetUrl(String url) {}
+
     void originalImage(Path imagePath);
 
     void portraitPrompt(PortraitPromptSpec promptSpec);

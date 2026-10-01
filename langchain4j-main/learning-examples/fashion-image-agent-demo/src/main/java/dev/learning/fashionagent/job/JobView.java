@@ -24,6 +24,7 @@ public record JobView(
         Double clothingMatchPercentage,
         String clothingMatchRule,
         String finalImageUrl,
+        String generationUrl,
         PortraitPromptSpec portraitPrompt,
         List<PortraitAttemptView> portraitAttempts,
         PortraitQualityReport finalPortraitQualityReport,

@@ -205,7 +205,8 @@ public class SectorRankingLogService {
                     .getOrDefault(snapshot.getId(), List.of()).stream()
                     .collect(Collectors.toMap(SectorRankingEntryEntity::getFullCode, entry -> entry, (left, right) -> left));
             String time = snapshot.getCapturedAt().format(RANK_TIME_FORMAT);
-            byStock.values().forEach(stock -> stock.addAt(entries.get(stock.fullCode), time));
+            byStock.values().forEach(stock -> stock.addAt(
+                    entries.get(stock.fullCode), time, snapshot.getCapturedAt()));
         });
         List<StockRankingStatistics> stocks = byStock.values().stream()
                 .map(stock -> stock.toResult(liveQuotes.get(stock.fullCode)))
@@ -224,6 +225,7 @@ public class SectorRankingLogService {
         private final List<Integer> rankTimeline = new ArrayList<>();
         private final List<String> rankTimeTimeline = new ArrayList<>();
         private final List<String> rankingReasonTimeline = new ArrayList<>();
+        private final List<PricePoint> priceTimeline = new ArrayList<>();
         private double totalScore;
         private Double latestReturn1m;
         private Double latestReturn3m;
@@ -237,20 +239,22 @@ public class SectorRankingLogService {
             this.stockName = stockName;
         }
 
-        private void addAt(SectorRankingEntryEntity entry, String time) {
+        private void addAt(SectorRankingEntryEntity entry, String time, LocalDateTime capturedAt) {
             rankTimeTimeline.add(time);
             if (entry == null) {
                 rankTimeline.add(null);
                 rankingReasonTimeline.add(null);
+                priceTimeline.add(new PricePoint(capturedAt, null));
                 return;
             }
             int rank = entry.getRank();
             ranks.add(rank);
             rankTimeline.add(rank);
             totalScore += rankingContribution(entry);
-            latestReturn1m = entry.getReturn1m();
-            latestReturn3m = entry.getReturn3m();
-            latestReturn5m = entry.getReturn5m();
+            priceTimeline.add(new PricePoint(capturedAt, entry.getCurrentPrice()));
+            latestReturn1m = fallbackReturn(entry.getReturn1m(), capturedAt, 1);
+            latestReturn3m = fallbackReturn(entry.getReturn3m(), capturedAt, 3);
+            latestReturn5m = fallbackReturn(entry.getReturn5m(), capturedAt, 5);
             latestDailyChangePercent = entry.getDailyChangePercent();
             latestLimitUp = Boolean.TRUE.equals(entry.getLimitUp());
             latestRankingReason = rankReason(entry);
@@ -284,6 +288,33 @@ public class SectorRankingLogService {
             return value == null ? 0 : Math.max(0, Math.min(5, value));
         }
 
+        private Double fallbackReturn(Double stored, LocalDateTime capturedAt, int minutes) {
+            if (stored != null) return stored;
+            PricePoint current = priceTimeline.get(priceTimeline.size() - 1);
+            if (current.price == null || current.price <= 0) return null;
+            LocalDateTime target = capturedAt.minusMinutes(minutes);
+            PricePoint reference = null;
+            for (int index = priceTimeline.size() - 2; index >= 0; index--) {
+                PricePoint candidate = priceTimeline.get(index);
+                if (candidate.price != null && candidate.price > 0
+                        && !candidate.capturedAt.isAfter(target)) {
+                    reference = candidate;
+                    break;
+                }
+            }
+            if (reference == null) {
+                for (int index = 0; index < priceTimeline.size() - 1; index++) {
+                    PricePoint candidate = priceTimeline.get(index);
+                    if (candidate.price != null && candidate.price > 0) {
+                        reference = candidate;
+                        break;
+                    }
+                }
+            }
+            return reference == null ? 0.0
+                    : (current.price - reference.price) / reference.price * 100.0;
+        }
+
         private StockRankingStatistics toResult(StockQuote liveQuote) {
             int first = (int) ranks.stream().filter(rank -> rank == 1).count();
             int second = (int) ranks.stream().filter(rank -> rank == 2).count();
@@ -298,6 +329,9 @@ public class SectorRankingLogService {
                     liveQuote == null ? latestDailyChangePercent : liveQuote.changePercent(),
                     latestLimitUp, new ArrayList<>(rankTimeTimeline),
                     latestRankingReason, new ArrayList<>(rankingReasonTimeline));
+        }
+
+        private record PricePoint(LocalDateTime capturedAt, Double price) {
         }
     }
 
